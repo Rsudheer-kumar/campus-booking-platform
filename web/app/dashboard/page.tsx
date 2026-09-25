@@ -37,11 +37,11 @@ export default function DashboardPage() {
         />
 
         {/* 3D Dashboard Visualization Area */}
-        <div className="flex flex-col xl:flex-row gap-6 h-[750px] xl:h-[600px]">
+        <div className="flex flex-col xl:flex-row gap-6 xl:h-[650px]">
 
           {/* Main 3D Canvas */}
           <Card
-            className="flex-1 overflow-hidden p-0 relative shadow-2xl border-primary/20 bg-[#050816]/50 backdrop-blur-sm"
+            className="flex-1 w-full min-h-[450px] xl:min-h-0 overflow-hidden p-0 relative shadow-2xl border-primary/20 bg-[#050816]/50 backdrop-blur-sm"
             noPadding
           >
             {/* Themed UI Overlay guiding user */}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Environment, Stars } from "@react-three/drei";
+import { Environment } from "@react-three/drei";
 
 export function SceneEnvironment() {
   return (
@@ -22,13 +22,10 @@ export function SceneEnvironment() {
         shadow-bias={-0.0001}
       />
 
-      <directionalLight position={[-10, -10, -10]} intensity={0.2} color="#4F8CFF" />
+      <directionalLight position={[-10, 5, -10]} intensity={0.3} color="#4F8CFF" />
 
       {/* Atmospheric Fog aligned with our #050816 background */}
       <fog attach="fog" args={["#050816", 15, 60]} />
-
-      {/* Very subtle stars to add digital depth */}
-      <Stars radius={50} depth={50} count={1000} factor={2} saturation={0} fade speed={0.5} />
 
       {/*
         Using preset="city" gives soft realistic reflections,

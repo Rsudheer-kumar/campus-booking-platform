@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { Html, Float } from "@react-three/drei";
 import * as THREE from "three";
 import { cn } from "@/lib/utils";
+import { useReducedMotion } from "framer-motion";
 
 export type ResourceStatus = "available" | "occupied" | "limited" | "maintenance";
 
@@ -34,6 +35,7 @@ export function ResourceMarker({
 }: ResourceMarkerProps) {
   const [hovered, setHovered] = useState(false);
   const color = statusColorMap[status];
+  const prefersReducedMotion = useReducedMotion();
 
   // Material setup - memorized for performance
   const markerMaterial = useMemo(
@@ -51,10 +53,10 @@ export function ResourceMarker({
   return (
     <group position={position}>
       <Float
-        speed={2} // Animation speed
-        rotationIntensity={0.2} // XYZ rotation intensity
-        floatIntensity={0.5} // Up/down float intensity
-        floatingRange={[-0.1, 0.1]}
+        speed={prefersReducedMotion ? 0 : 2} // Animation speed
+        rotationIntensity={prefersReducedMotion ? 0 : 0.2} // XYZ rotation intensity
+        floatIntensity={prefersReducedMotion ? 0 : 0.5} // Up/down float intensity
+        floatingRange={prefersReducedMotion ? [0, 0] : [-0.1, 0.1]}
       >
         {/* Core Marker Geometry */}
         <mesh
@@ -96,9 +98,10 @@ export function ResourceMarker({
           style={{ transition: "all 0.2s", opacity: hovered || selected ? 1 : 0.8 }}
           // Hide if too far or blocked logic could go here
         >
-          <div
+          <button
+            type="button"
             className={cn(
-              "flex cursor-pointer select-none flex-col items-center gap-1 transition-transform",
+              "flex cursor-pointer select-none flex-col items-center gap-1 transition-transform outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-full",
               selected ? "scale-110" : "scale-100 hover:scale-105"
             )}
             onClick={(e) => {
@@ -117,14 +120,14 @@ export function ResourceMarker({
 
             {/* Contextual tooltip content only visible when selected */}
             {selected && (
-              <div className="mt-1 w-max rounded-[var(--radius-md)] border border-border bg-[#101A31]/95 p-3 text-center shadow-lg backdrop-blur mx-auto">
+              <div className="mt-1 w-max rounded-[var(--radius-md)] border border-border bg-[#101A31]/95 p-3 text-center shadow-lg backdrop-blur mx-auto cursor-default">
                 <p className="text-[10px] uppercase tracking-wider text-muted mb-1">Status</p>
                 <span className="block font-medium capitalize text-foreground text-sm" style={{ color }}>
                   {status}
                 </span>
               </div>
             )}
-          </div>
+          </button>
         </Html>
       </Float>
     </group>
