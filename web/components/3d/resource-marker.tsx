@@ -100,6 +100,7 @@ export function ResourceMarker({
         >
           <button
             type="button"
+            aria-label={`${label}. ${count} resources. Status: ${status}.`}
             className={cn(
               "flex cursor-pointer select-none flex-col items-center gap-1 transition-transform outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-full",
               selected ? "scale-110" : "scale-100 hover:scale-105"

@@ -21,18 +21,18 @@ export interface CampusSceneProps {
 const BUILDINGS = [
   {
     id: "bld-cs",
-    label: "Computer Science Block",
-    position: [-8, 2.5, -4] as [number, number, number],
-    size: [6, 5, 8] as [number, number, number], // w,h,d  -> position.y should be size.y/2 to sit on ground
+    label: "Computer Science",
+    position: [-8.5, 2.5, -5] as [number, number, number],
+    size: [6, 5, 8] as [number, number, number], // w,h,d -> position.y must be size.y/2
     type: "lab" as const,
     resourcesCount: 18,
     status: "available" as ResourceStatus,
   },
   {
     id: "bld-ai",
-    label: "AI Research Lab",
-    position: [6, 3, -6] as [number, number, number],
-    size: [8, 6, 8] as [number, number, number],
+    label: "AI Research",
+    position: [6.5, 3, -6.5] as [number, number, number],
+    size: [7, 6, 9] as [number, number, number],
     type: "research" as const,
     resourcesCount: 4,
     status: "limited" as ResourceStatus,
@@ -40,17 +40,17 @@ const BUILDINGS = [
   {
     id: "bld-innov",
     label: "Innovation Center",
-    position: [5, 2, 5] as [number, number, number],
-    size: [5, 4, 10] as [number, number, number],
+    position: [5.5, 2, 5.5] as [number, number, number],
+    size: [6, 4, 10] as [number, number, number],
     type: "general" as const,
     resourcesCount: 12,
     status: "available" as ResourceStatus,
   },
   {
     id: "bld-seminar",
-    label: "Main Seminar Hall",
-    position: [-6, 1.5, 6] as [number, number, number],
-    size: [8, 3, 6] as [number, number, number],
+    label: "Seminar Hall",
+    position: [-6.5, 1.5, 6.5] as [number, number, number],
+    size: [8, 3, 7] as [number, number, number],
     type: "seminar" as const,
     resourcesCount: 2,
     status: "occupied" as ResourceStatus,
@@ -58,8 +58,8 @@ const BUILDINGS = [
   {
     id: "bld-sports",
     label: "Sports Complex",
-    position: [0, 2, 12] as [number, number, number],
-    size: [12, 4, 6] as [number, number, number],
+    position: [0, 2, 14] as [number, number, number],
+    size: [12, 4, 8] as [number, number, number],
     type: "sports" as const,
     resourcesCount: 8,
     status: "maintenance" as ResourceStatus,
@@ -69,7 +69,6 @@ const BUILDINGS = [
 export function CampusScene({ onSelectBuilding, selectedBuildingId }: CampusSceneProps) {
   const handleSelect = useCallback(
     (id: string) => {
-      // Toggle selection off if already selected
       onSelectBuilding?.(id === selectedBuildingId ? null : id);
     },
     [onSelectBuilding, selectedBuildingId]
@@ -79,8 +78,8 @@ export function CampusScene({ onSelectBuilding, selectedBuildingId }: CampusScen
     <WebGLErrorBoundary fallback={<SceneFallback />}>
       <Canvas
         shadows
-        dpr={[1, 2]} // Protect performance by clamping pixel ratio
-        camera={{ position: [15, 12, 20], fov: 45 }}
+        dpr={[1, 2]} // Protect performance by clamping pixel ratio max to 2
+        camera={{ position: [18, 14, 22], fov: 42 }}
         style={{
           width: "100%",
           height: "100%",
@@ -105,8 +104,8 @@ export function CampusScene({ onSelectBuilding, selectedBuildingId }: CampusScen
                   onClick={() => handleSelect(b.id)}
                 />
                 <ResourceMarker
-                  // Place marker directly above building
-                  position={[b.position[0], b.position[1] + b.size[1] / 2 + 1, b.position[2]]}
+                  // Place marker directly above building roof
+                  position={[b.position[0], b.position[1] + b.size[1] / 2 + 1.2, b.position[2]]}
                   label={b.label}
                   count={b.resourcesCount}
                   status={b.status}
@@ -123,9 +122,10 @@ export function CampusScene({ onSelectBuilding, selectedBuildingId }: CampusScen
             enableDamping
             dampingFactor={0.05}
             minDistance={10}
-            maxDistance={50}
+            maxDistance={55}
             maxPolarAngle={Math.PI / 2.1} // Prevent camera going underground
             enablePan={false} // Restrict infinite panning
+            target={[0, 0, 0]}
           />
           <Preload all />
         </Suspense>

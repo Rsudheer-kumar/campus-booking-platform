@@ -41,7 +41,7 @@ export default function DashboardPage() {
 
           {/* Main 3D Canvas */}
           <Card
-            className="flex-1 w-full min-h-[450px] xl:min-h-0 overflow-hidden p-0 relative shadow-2xl border-primary/20 bg-[#050816]/50 backdrop-blur-sm"
+            className="flex-1 w-full min-h-[350px] sm:min-h-[450px] xl:min-h-0 overflow-hidden p-0 relative shadow-2xl border-primary/20 bg-[#050816]/50 backdrop-blur-sm"
             noPadding
           >
             {/* Themed UI Overlay guiding user */}
