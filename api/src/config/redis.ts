@@ -1,7 +1,7 @@
 /**
  * CampusFlow API - Redis Configuration Foundation
  * Manages Redis client lifecycle, provides connection state helpers,
- * and supports graceful shutdown.
+ * handles reconnect backoff, redacts credentials, and supports graceful shutdown.
  */
 
 import { createClient, type RedisClientType } from 'redis';
@@ -10,12 +10,29 @@ import { logger } from '../utils/logger';
 
 let redisClient: RedisClientType | null = null;
 let isConnecting = false;
+let lastRedisError: string | null = null;
+
+export type RedisState = 'connected' | 'connecting' | 'disconnected' | 'error';
+
+/**
+ * Sanitizes Redis URL by redacting password/credentials if present.
+ */
+export function redactRedisUrl(url: string): string {
+  return url.replace(/\/\/([^:]+):([^@]+)@/, '//$1:****@')
+            .replace(/\/\/:([^@]+)@/, '//:****@');
+}
 
 export function getRedisClient(): RedisClientType | null {
   return redisClient;
 }
 
-export async function connectRedis(): Promise<RedisClientType | null> {
+export function getLastRedisError(): string | null {
+  return lastRedisError;
+}
+
+export async function connectRedis(urlOverride?: string): Promise<RedisClientType | null> {
+  const targetUrl = urlOverride || env.REDIS_URL;
+
   // If already connected and ready, return existing client
   if (redisClient && redisClient.isReady) {
     logger.debug('Redis already connected and ready');
@@ -31,23 +48,35 @@ export async function connectRedis(): Promise<RedisClientType | null> {
   isConnecting = true;
 
   try {
-    if (!redisClient) {
+    if (!redisClient || urlOverride) {
+      // If client exists but we are switching target URL, close previous
+      if (redisClient && redisClient.isOpen) {
+        try {
+          await redisClient.destroy();
+        } catch {
+          // ignore cleanup error
+        }
+      }
+
       redisClient = createClient({
-        url: env.REDIS_URL,
+        url: targetUrl,
         socket: {
           connectTimeout: 5000,
           reconnectStrategy: (retries) => {
-            // In development or test, stop retrying if offline to prevent blocking
-            if (env.isTest || retries > 3) {
+            // Stop reconnecting after 3 attempts in development/test to prevent infinite loops
+            if (env.isTest || retries >= 3) {
+              lastRedisError = 'Redis max reconnect attempts reached';
               return new Error('Redis max reconnect attempts reached');
             }
+            // Exponential backoff capped at 3000ms
             return Math.min(retries * 500, 3000);
           },
         },
       });
 
-      redisClient.on('error', (err) => {
-        logger.error('Redis client runtime error', err instanceof Error ? err.message : err);
+      redisClient.on('error', (err: Error) => {
+        lastRedisError = err.message;
+        logger.error('Redis client runtime error', err.message);
       });
 
       redisClient.on('connect', () => {
@@ -55,7 +84,12 @@ export async function connectRedis(): Promise<RedisClientType | null> {
       });
 
       redisClient.on('ready', () => {
+        lastRedisError = null;
         logger.info('Redis client connected and ready');
+      });
+
+      redisClient.on('reconnecting', () => {
+        logger.warn('Redis client reconnecting...');
       });
 
       redisClient.on('end', () => {
@@ -63,11 +97,13 @@ export async function connectRedis(): Promise<RedisClientType | null> {
       });
     }
 
-    logger.info('Connecting to Redis...', { url: env.REDIS_URL.replace(/\/\/([^:]+):([^@]+)@/, '//$1:****@') });
+    logger.info('Connecting to Redis...', { url: redactRedisUrl(targetUrl) });
     await redisClient.connect();
+    lastRedisError = null;
     return redisClient;
   } catch (error) {
-    logger.error('Failed to connect to Redis', error instanceof Error ? error.message : error);
+    lastRedisError = error instanceof Error ? error.message : String(error);
+    logger.error('Failed to connect to Redis', lastRedisError);
     throw error;
   } finally {
     isConnecting = false;
@@ -88,7 +124,16 @@ export async function disconnectRedis(): Promise<void> {
       }
     } finally {
       redisClient = null;
+      lastRedisError = null;
     }
+  } else if (redisClient) {
+    try {
+      redisClient.destroy();
+    } catch {
+      // ignore
+    }
+    redisClient = null;
+    lastRedisError = null;
   }
 }
 
@@ -96,9 +141,18 @@ export function isRedisConnected(): boolean {
   return redisClient !== null && redisClient.isReady;
 }
 
-export function getRedisState(): 'connected' | 'connecting' | 'disconnected' {
-  if (!redisClient) return 'disconnected';
-  if (redisClient.isReady) return 'connected';
-  if (redisClient.isOpen) return 'connecting';
+export function getRedisState(): RedisState {
+  if (!redisClient) {
+    return lastRedisError ? 'error' : 'disconnected';
+  }
+  if (redisClient.isReady) {
+    return 'connected';
+  }
+  if (redisClient.isOpen) {
+    return 'connecting';
+  }
+  if (lastRedisError) {
+    return 'error';
+  }
   return 'disconnected';
 }

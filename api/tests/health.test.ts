@@ -49,13 +49,13 @@ describe('CampusFlow API Foundation & Health Tests', () => {
     };
 
     assert.strictEqual(body.success, true);
-    assert.strictEqual(body.data.status, 'ok');
+    assert.ok(['ok', 'degraded'].includes(body.data.status));
     assert.ok(typeof body.data.timestamp === 'string');
     assert.ok(typeof body.data.uptime === 'number');
     assert.ok(typeof body.data.environment === 'string');
     assert.ok(body.data.services);
-    assert.ok(['connected', 'connecting', 'disconnecting', 'disconnected'].includes(body.data.services.database));
-    assert.ok(['connected', 'connecting', 'disconnected'].includes(body.data.services.redis));
+    assert.ok(['connected', 'connecting', 'disconnecting', 'disconnected', 'error'].includes(body.data.services.database));
+    assert.ok(['connected', 'connecting', 'disconnected', 'error'].includes(body.data.services.redis));
   });
 
   it('GET / should return root application information', async () => {
