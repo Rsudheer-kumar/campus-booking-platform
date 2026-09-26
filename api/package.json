@@ -1,10 +1,14 @@
 {
   "name": "api",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "CampusFlow Backend API Foundation",
+  "main": "dist/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "lint": "eslint .",
+    "test": "node --import tsx --test tests/**/*.test.ts"
   },
   "keywords": [],
   "author": "",
@@ -18,10 +22,13 @@
     "redis": "^6.2.1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.2",
+    "eslint": "^10.11.0",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.1"
   }
 }
