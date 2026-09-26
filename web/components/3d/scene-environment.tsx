@@ -1,13 +1,10 @@
 "use client";
 
-import { Environment } from "@react-three/drei";
-import { Suspense } from "react";
-
 export function SceneEnvironment() {
   return (
     <>
       {/* Ambient base - raised slightly for readability */}
-      <ambientLight intensity={0.6} color="#E2E8F0" />
+      <ambientLight intensity={0.65} color="#E2E8F0" />
 
       {/* Main Key Light representing structured moonlight */}
       <directionalLight
@@ -44,15 +41,6 @@ export function SceneEnvironment() {
 
       {/* Atmospheric Fog aligned with our #050816 background */}
       <fog attach="fog" args={["#050816", 25, 75]} />
-
-      {/*
-        Using preset="city" gives soft realistic reflections on glass/metal surfaces,
-        lowered intensity to keep the dark architectural aesthetic.
-        Wrapped in Suspense so the HDRI network download doesn't block the main scene render.
-      */}
-      <Suspense fallback={null}>
-        <Environment preset="city" environmentIntensity={0.25} />
-      </Suspense>
     </>
   );
 }

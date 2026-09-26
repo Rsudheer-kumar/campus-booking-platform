@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Html, useProgress } from "@react-three/drei";
+import { OrbitControls } from "@react-three/drei";
 
 import { CampusGround } from "./campus-ground";
 import { CampusPaths } from "./campus-paths";
@@ -11,22 +11,6 @@ import { ResourceMarker, type ResourceStatus } from "./resource-marker";
 import { SceneEnvironment } from "./scene-environment";
 import { WebGLErrorBoundary } from "./error-boundary";
 import { SceneFallback } from "./scene-fallback";
-
-function CanvasLoader() {
-  const { progress } = useProgress();
-  return (
-    <Html center zIndexRange={[100, 0]}>
-      <div className="flex flex-col items-center justify-center p-4 bg-[#050816]/95 backdrop-blur-md rounded-[var(--radius-md)] border border-border/50 text-white shadow-2xl whitespace-nowrap">
-        <h3 className="text-sm font-semibold tracking-tight text-white mb-1">
-          Campus Digital Twin
-        </h3>
-        <p className="text-xs text-white/70">
-          Initializing campus view... {progress ? progress.toFixed(0) : 0}%
-        </p>
-      </div>
-    </Html>
-  );
-}
 
 export interface CampusSceneProps {
   onSelectBuilding?: (buildingId: string | null) => void;
@@ -105,7 +89,7 @@ export function CampusScene({
           background: "#050816",
         }}
       >
-        <Suspense fallback={<CanvasLoader />}>
+        <Suspense fallback={null}>
           <SceneEnvironment />
           <CampusGround />
           <CampusPaths />

@@ -1,6 +1,14 @@
 "use client";
 
+import * as THREE from "three";
 import { Grid, Edges } from "@react-three/drei";
+
+// Reusable static geometries and materials to avoid re-allocating on every remount/render
+const plinthGeometry = new THREE.PlaneGeometry(40, 40);
+const plinthMaterial = new THREE.MeshStandardMaterial({ color: "#0B1120", roughness: 0.9 });
+
+const baseGeometry = new THREE.PlaneGeometry(150, 150);
+const baseMaterial = new THREE.MeshStandardMaterial({ color: "#050816", roughness: 1 });
 
 export function CampusGround() {
   return (
@@ -23,10 +31,10 @@ export function CampusGround() {
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}
         position={[0, -0.015, 0]}
+        geometry={plinthGeometry}
+        material={plinthMaterial}
         receiveShadow
       >
-        <planeGeometry args={[40, 40]} />
-        <meshStandardMaterial color="#0B1120" roughness={0.9} />
         <Edges linewidth={1.5} threshold={15} color="#1E2A44" />
       </mesh>
 
@@ -34,11 +42,10 @@ export function CampusGround() {
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}
         position={[0, -0.02, 0]}
+        geometry={baseGeometry}
+        material={baseMaterial}
         receiveShadow
-      >
-        <planeGeometry args={[150, 150]} />
-        <meshStandardMaterial color="#050816" roughness={1} />
-      </mesh>
+      />
     </group>
   );
 }

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Bell, Menu, MonitorDot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserMenu } from "./user-menu";
@@ -31,14 +32,19 @@ export function Navbar({ onOpenMobileMenu, className, ...props }: NavbarProps) {
         </button>
 
         {/* Mobile Logo Only (Desktop has it in Sidebar) */}
-        <div className="flex items-center gap-2 md:hidden">
+        <Link
+          href="/"
+          prefetch={true}
+          className="flex items-center gap-2 md:hidden outline-none rounded-[var(--radius-sm)] focus-visible:ring-2 focus-visible:ring-primary/50"
+          aria-label="Return to CampusFlow Home"
+        >
           <div className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] bg-primary text-white shadow-[0_0_12px_rgba(79,140,255,0.35)]">
             <MonitorDot className="h-3.5 w-3.5" aria-hidden="true" />
           </div>
           <span className="text-base font-semibold tracking-tight text-foreground">
             CampusFlow
           </span>
-        </div>
+        </Link>
       </div>
 
       {/* Right side actions */}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import * as THREE from "three";
 import { Edges } from "@react-three/drei";
 
@@ -20,27 +20,81 @@ const typeColorMap = {
   research: "#16233B",
 };
 
-export function CampusBuilding({
-  position,
-  size,
-  type,
-  onClick,
-  selected = false,
-}: CampusBuildingProps) {
-  const [hovered, setHovered] = useState(false);
-  const baseColor = typeColorMap[type];
+// Module-level geometry cache
+const geometryCache = new Map<string, THREE.BufferGeometry>();
 
-  // Materials via useMemo to avoid recreating on renders
-  const materials = useMemo(() => {
-    return {
+function getBoxGeometry(w: number, h: number, d: number): THREE.BoxGeometry {
+  const key = `box_${w.toFixed(2)}_${h.toFixed(2)}_${d.toFixed(2)}`;
+  let geom = geometryCache.get(key) as THREE.BoxGeometry | undefined;
+  if (!geom) {
+    geom = new THREE.BoxGeometry(w, h, d);
+    geometryCache.set(key, geom);
+  }
+  return geom;
+}
+
+function getCylinderGeometry(
+  radiusTop: number,
+  radiusBottom: number,
+  height: number,
+  radialSegments = 16,
+  heightSegments = 1,
+  openEnded = false,
+  thetaStart = 0,
+  thetaLength = Math.PI
+): THREE.CylinderGeometry {
+  const key = `cyl_${radiusTop.toFixed(2)}_${radiusBottom.toFixed(2)}_${height.toFixed(2)}_${thetaLength.toFixed(2)}`;
+  let geom = geometryCache.get(key) as THREE.CylinderGeometry | undefined;
+  if (!geom) {
+    geom = new THREE.CylinderGeometry(
+      radiusTop,
+      radiusBottom,
+      height,
+      radialSegments,
+      heightSegments,
+      openEnded,
+      thetaStart,
+      thetaLength
+    );
+    geometryCache.set(key, geom);
+  }
+  return geom;
+}
+
+function getPlaneGeometry(w: number, d: number): THREE.PlaneGeometry {
+  const key = `plane_${w.toFixed(2)}_${d.toFixed(2)}`;
+  let geom = geometryCache.get(key) as THREE.PlaneGeometry | undefined;
+  if (!geom) {
+    geom = new THREE.PlaneGeometry(w, d);
+    geometryCache.set(key, geom);
+  }
+  return geom;
+}
+
+// Module-level material cache
+interface BuildingMaterials {
+  body: THREE.MeshStandardMaterial;
+  glass: THREE.MeshStandardMaterial;
+  roof: THREE.MeshStandardMaterial;
+  accent: THREE.MeshStandardMaterial;
+}
+
+const materialCache = new Map<string, BuildingMaterials>();
+
+function getBuildingMaterials(type: keyof typeof typeColorMap, selected: boolean): BuildingMaterials {
+  const key = `${type}_${selected ? "1" : "0"}`;
+  let set = materialCache.get(key);
+  if (!set) {
+    const baseColor = typeColorMap[type] || "#182236";
+    set = {
       body: new THREE.MeshStandardMaterial({
-        color: selected ? "#2A457D" : baseColor, // Brighter base on selection
+        color: selected ? "#2A457D" : baseColor,
         roughness: 0.7,
         metalness: 0.1,
       }),
       glass: new THREE.MeshStandardMaterial({
         color: selected ? "#89B4FF" : "#3C63A6",
-        emissive: selected ? "#2F5092" : "#0A1224", // Emissive glow for glass
+        emissive: selected ? "#2F5092" : "#0A1224",
         emissiveIntensity: selected ? 0.4 : 0.1,
         roughness: 0.1,
         metalness: 0.9,
@@ -58,14 +112,31 @@ export function CampusBuilding({
         emissiveIntensity: selected ? 0.3 : 0,
         roughness: 0.6,
       }),
-      highlight: new THREE.MeshBasicMaterial({
-        color: selected ? "#4F8CFF" : hovered ? "#7BA7FF" : "#1E2A44",
-      }),
     };
-  }, [baseColor, selected, hovered]);
+    materialCache.set(key, set);
+  }
+  return set;
+}
+
+const selectedGroundMaterial = new THREE.MeshBasicMaterial({
+  color: "#4F8CFF",
+  transparent: true,
+  opacity: 0.15,
+  depthWrite: false,
+});
+
+export function CampusBuilding({
+  position,
+  size,
+  type,
+  onClick,
+  selected = false,
+}: CampusBuildingProps) {
+  const [hovered, setHovered] = useState(false);
+  const materials = getBuildingMaterials(type, selected);
 
   // Edges provide the wireframe architectural look
-  const edgeColor = selected ? "#89B4FF" : hovered ? "#4F8CFF" : "#2F4266"; // Brighter edge for readability
+  const edgeColor = selected ? "#89B4FF" : hovered ? "#4F8CFF" : "#2F4266";
   const edgeWidth = selected ? 2.5 : hovered ? 1.5 : 1;
 
   // Destructure sizes
@@ -94,23 +165,20 @@ export function CampusBuilding({
         position={[0, -h / 2 + 0.1, 0]}
         castShadow
         receiveShadow
+        geometry={getBoxGeometry(w * 1.05, 0.2, d * 1.05)}
         material={materials.roof}
       >
-        <boxGeometry args={[w * 1.05, 0.2, d * 1.05]} />
         <Edges linewidth={edgeWidth} threshold={15} color={edgeColor} />
       </mesh>
 
       {/* Selected state ground emphasis */}
       {selected && (
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -h / 2 + 0.05, 0]}>
-          <planeGeometry args={[w * 1.3, d * 1.3]} />
-          <meshBasicMaterial
-            color="#4F8CFF"
-            transparent
-            opacity={0.15}
-            depthWrite={false}
-          />
-        </mesh>
+        <mesh
+          rotation={[-Math.PI / 2, 0, 0]}
+          position={[0, -h / 2 + 0.05, 0]}
+          geometry={getPlaneGeometry(w * 1.3, d * 1.3)}
+          material={selectedGroundMaterial}
+        />
       )}
 
       {/* Building Specific Architectural Massing */}
@@ -118,44 +186,47 @@ export function CampusBuilding({
       {type === "research" && (
         <group>
           {/* Main Tower Core */}
-          <mesh castShadow receiveShadow material={materials.body}>
-            <boxGeometry args={[w * 0.8, h, d * 0.8]} />
+          <mesh
+            castShadow
+            receiveShadow
+            geometry={getBoxGeometry(w * 0.8, h, d * 0.8)}
+            material={materials.body}
+          >
             <Edges linewidth={edgeWidth} threshold={15} color={edgeColor} />
           </mesh>
           {/* Glass Facade protruding */}
           <mesh
             position={[0, 0, d * 0.4 + 0.1]}
+            geometry={getBoxGeometry(w * 0.6, h * 0.95, 0.2)}
             material={materials.glass}
             castShadow
-          >
-            <boxGeometry args={[w * 0.6, h * 0.95, 0.2]} />
-          </mesh>
+          />
           {/* Side wings */}
           <mesh
             position={[w * 0.45, -h * 0.15, 0]}
             castShadow
             receiveShadow
+            geometry={getBoxGeometry(w * 0.2, h * 0.7, d * 0.6)}
             material={materials.body}
           >
-            <boxGeometry args={[w * 0.2, h * 0.7, d * 0.6]} />
             <Edges linewidth={edgeWidth} threshold={15} color={edgeColor} />
           </mesh>
           <mesh
             position={[-w * 0.45, -h * 0.15, 0]}
             castShadow
             receiveShadow
+            geometry={getBoxGeometry(w * 0.2, h * 0.7, d * 0.6)}
             material={materials.body}
           >
-            <boxGeometry args={[w * 0.2, h * 0.7, d * 0.6]} />
             <Edges linewidth={edgeWidth} threshold={15} color={edgeColor} />
           </mesh>
           {/* Top Tech block */}
           <mesh
             position={[0, h / 2 + 0.4, 0]}
             castShadow
+            geometry={getBoxGeometry(w * 0.5, 0.8, d * 0.5)}
             material={materials.roof}
           >
-            <boxGeometry args={[w * 0.5, 0.8, d * 0.5]} />
             <Edges linewidth={1} threshold={15} color={edgeColor} />
           </mesh>
         </group>
@@ -164,39 +235,48 @@ export function CampusBuilding({
       {type === "lab" && (
         <group>
           {/* Main Wide Block */}
-          <mesh castShadow receiveShadow material={materials.body}>
-            <boxGeometry args={[w, h, d]} />
+          <mesh
+            castShadow
+            receiveShadow
+            geometry={getBoxGeometry(w, h, d)}
+            material={materials.body}
+          >
             <Edges linewidth={edgeWidth} threshold={15} color={edgeColor} />
           </mesh>
           {/* Raised Central Roof Monitor (for lab ventilation) */}
           <mesh
             position={[0, h / 2 + 0.5, 0]}
             castShadow
+            geometry={getBoxGeometry(w * 0.7, 1.0, d * 0.4)}
             material={materials.roof}
           >
-            <boxGeometry args={[w * 0.7, 1.0, d * 0.4]} />
             <Edges linewidth={1} threshold={15} color={edgeColor} />
           </mesh>
           {/* Continuous Wrap-around Glass Window Band */}
-          <mesh position={[0, h * 0.15, 0]} material={materials.glass}>
-            <boxGeometry args={[w * 1.02, h * 0.25, d * 1.02]} />
-          </mesh>
+          <mesh
+            position={[0, h * 0.15, 0]}
+            geometry={getBoxGeometry(w * 1.02, h * 0.25, d * 1.02)}
+            material={materials.glass}
+          />
           {/* Entrance Canopy */}
           <mesh
             position={[0, -h * 0.3, d / 2 + 0.4]}
             castShadow
+            geometry={getBoxGeometry(w * 0.3, 0.1, 0.8)}
             material={materials.accent}
-          >
-            <boxGeometry args={[w * 0.3, 0.1, 0.8]} />
-          </mesh>
+          />
         </group>
       )}
 
       {type === "seminar" && (
         <group>
           {/* Hall Main Body */}
-          <mesh castShadow receiveShadow material={materials.body}>
-            <boxGeometry args={[w, h, d]} />
+          <mesh
+            castShadow
+            receiveShadow
+            geometry={getBoxGeometry(w, h, d)}
+            material={materials.body}
+          >
             <Edges linewidth={edgeWidth} threshold={15} color={edgeColor} />
           </mesh>
           {/* Sloped Roof Overlay */}
@@ -204,32 +284,29 @@ export function CampusBuilding({
             position={[0, h / 2 + 0.6, 0]}
             rotation={[0.1, 0, 0]}
             castShadow
+            geometry={getBoxGeometry(w * 1.1, 0.2, d * 1.1)}
             material={materials.roof}
           >
-            <boxGeometry args={[w * 1.1, 0.2, d * 1.1]} />
             <Edges linewidth={1} threshold={15} color={edgeColor} />
           </mesh>
           {/* Tall Glass Atrium at the front */}
           <mesh
             position={[0, 0, d / 2 + 0.3]}
+            geometry={getBoxGeometry(w * 0.6, h * 0.9, 0.6)}
             material={materials.glass}
             castShadow
-          >
-            <boxGeometry args={[w * 0.6, h * 0.9, 0.6]} />
-          </mesh>
+          />
           {/* Vertical Architectural Fins on Atrium */}
           <mesh
             position={[-w * 0.2, 0, d / 2 + 0.6]}
+            geometry={getBoxGeometry(0.1, h * 0.9, 0.2)}
             material={materials.accent}
-          >
-            <boxGeometry args={[0.1, h * 0.9, 0.2]} />
-          </mesh>
+          />
           <mesh
             position={[w * 0.2, 0, d / 2 + 0.6]}
+            geometry={getBoxGeometry(0.1, h * 0.9, 0.2)}
             material={materials.accent}
-          >
-            <boxGeometry args={[0.1, h * 0.9, 0.2]} />
-          </mesh>
+          />
         </group>
       )}
 
@@ -239,10 +316,10 @@ export function CampusBuilding({
           <mesh
             castShadow
             receiveShadow
-            material={materials.body}
             position={[0, -h * 0.3, 0]}
+            geometry={getBoxGeometry(w, h * 0.4, d)}
+            material={materials.body}
           >
-            <boxGeometry args={[w, h * 0.4, d]} />
             <Edges linewidth={edgeWidth} threshold={15} color={edgeColor} />
           </mesh>
           {/* Prominent Curved Arch Roof */}
@@ -250,57 +327,31 @@ export function CampusBuilding({
             position={[0, h * 0.1, 0]}
             rotation={[0, 0, Math.PI / 2]}
             castShadow
+            geometry={getCylinderGeometry(d / 2, d / 2, w * 0.95, 16, 1, false, 0, Math.PI)}
             material={materials.roof}
           >
-            <cylinderGeometry
-              args={[d / 2, d / 2, w * 0.95, 16, 1, false, 0, Math.PI]}
-            />
             <Edges linewidth={1} threshold={15} color={edgeColor} />
           </mesh>
           {/* Glass end-caps for the curved roof */}
           <mesh
             position={[-w * 0.47, h * 0.1, 0]}
             rotation={[0, 0, Math.PI / 2]}
+            geometry={getCylinderGeometry((d / 2) * 0.95, (d / 2) * 0.95, 0.1, 16, 1, false, 0, Math.PI)}
             material={materials.glass}
-          >
-            <cylinderGeometry
-              args={[
-                (d / 2) * 0.95,
-                (d / 2) * 0.95,
-                0.1,
-                16,
-                1,
-                false,
-                0,
-                Math.PI,
-              ]}
-            />
-          </mesh>
+          />
           <mesh
             position={[w * 0.47, h * 0.1, 0]}
             rotation={[0, 0, Math.PI / 2]}
+            geometry={getCylinderGeometry((d / 2) * 0.95, (d / 2) * 0.95, 0.1, 16, 1, false, 0, Math.PI)}
             material={materials.glass}
-          >
-            <cylinderGeometry
-              args={[
-                (d / 2) * 0.95,
-                (d / 2) * 0.95,
-                0.1,
-                16,
-                1,
-                false,
-                0,
-                Math.PI,
-              ]}
-            />
-          </mesh>
+          />
           {/* Entrance Extrusion */}
           <mesh
             position={[0, -h * 0.25, d / 2 + 0.4]}
             castShadow
+            geometry={getBoxGeometry(w * 0.4, h * 0.5, 0.8)}
             material={materials.accent}
           >
-            <boxGeometry args={[w * 0.4, h * 0.5, 0.8]} />
             <Edges linewidth={1} threshold={15} color={edgeColor} />
           </mesh>
         </group>
@@ -313,9 +364,9 @@ export function CampusBuilding({
             position={[-w * 0.15, 0, -d * 0.15]}
             castShadow
             receiveShadow
+            geometry={getBoxGeometry(w * 0.7, h, d * 0.7)}
             material={materials.body}
           >
-            <boxGeometry args={[w * 0.7, h, d * 0.7]} />
             <Edges linewidth={edgeWidth} threshold={15} color={edgeColor} />
           </mesh>
           {/* Secondary Intersecting Volume */}
@@ -323,15 +374,17 @@ export function CampusBuilding({
             position={[w * 0.25, -h * 0.2, d * 0.2]}
             castShadow
             receiveShadow
+            geometry={getBoxGeometry(w * 0.5, h * 0.6, d * 0.6)}
             material={materials.accent}
           >
-            <boxGeometry args={[w * 0.5, h * 0.6, d * 0.6]} />
             <Edges linewidth={edgeWidth} threshold={15} color={edgeColor} />
           </mesh>
           {/* Glass Connector Area */}
-          <mesh position={[w * 0.05, 0, -d * 0.1]} material={materials.glass}>
-            <boxGeometry args={[w * 0.3, h * 0.85, d * 0.3]} />
-          </mesh>
+          <mesh
+            position={[w * 0.05, 0, -d * 0.1]}
+            geometry={getBoxGeometry(w * 0.3, h * 0.85, d * 0.3)}
+            material={materials.glass}
+          />
         </group>
       )}
     </group>

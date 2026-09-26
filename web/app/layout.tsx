@@ -18,7 +18,7 @@ export const metadata: Metadata = {
     template: "%s | CampusFlow",
   },
   description:
-    "Unified campus resource, laboratory and facility booking platform.",
+    "Unified Campus Resource, Laboratory and Facility Booking Platform",
 };
 
 export default function RootLayout({

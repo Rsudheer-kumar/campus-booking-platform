@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { mainNavItems, bottomNavItems } from "@/lib/navigation";
 import { NavItem } from "./nav-item";
 import { MonitorDot } from "lucide-react";
@@ -13,12 +14,17 @@ export function SidebarContent({ onItemClick, className }: SidebarContentProps) 
     <div className={cn("flex h-full flex-col bg-[#0B1224]", className)}>
       {/* Brand Header */}
       <div className="flex h-16 shrink-0 items-center border-b border-border px-6">
-        <span className="flex items-center gap-2.5 text-lg font-semibold tracking-tight text-foreground">
+        <Link
+          href="/"
+          prefetch={true}
+          className="flex items-center gap-2.5 text-lg font-semibold tracking-tight text-foreground outline-none rounded-[var(--radius-sm)] focus-visible:ring-2 focus-visible:ring-primary/50"
+          aria-label="Return to CampusFlow Home"
+        >
           <div className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] bg-primary text-white shadow-[0_0_12px_rgba(79,140,255,0.35)]">
             <MonitorDot className="h-4 w-4" aria-hidden="true" />
           </div>
           CampusFlow
-        </span>
+        </Link>
       </div>
 
       {/* Main Nav */}

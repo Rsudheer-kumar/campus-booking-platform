@@ -1,12 +1,16 @@
-import { useMemo, useState, useEffect } from "react";
+"use client";
 
+import { useState, useEffect } from "react";
 import { Html, Float } from "@react-three/drei";
 import * as THREE from "three";
 import { cn } from "@/lib/utils";
 import { useReducedMotion } from "framer-motion";
 
 export type ResourceStatus =
-  "available" | "occupied" | "limited" | "maintenance";
+  | "available"
+  | "occupied"
+  | "limited"
+  | "maintenance";
 
 export interface ResourceMarkerProps {
   position: [number, number, number];
@@ -24,6 +28,44 @@ const statusColorMap = {
   maintenance: "#94A3B8", // Muted
 };
 
+// Reusable static marker geometry
+const markerGeometry = new THREE.OctahedronGeometry(0.5, 0);
+const ringGeometry = new THREE.RingGeometry(0.7, 0.8, 32);
+
+// Module-level material caches to eliminate runtime shader compilation and GC thrashing
+const markerMaterialCache = new Map<string, THREE.MeshStandardMaterial>();
+const ringMaterialCache = new Map<string, THREE.MeshBasicMaterial>();
+
+function getMarkerMaterial(color: string, selected: boolean, hovered: boolean): THREE.MeshStandardMaterial {
+  const key = `${color}_${selected ? "1" : "0"}_${hovered ? "1" : "0"}`;
+  let mat = markerMaterialCache.get(key);
+  if (!mat) {
+    mat = new THREE.MeshStandardMaterial({
+      color: color,
+      emissive: color,
+      emissiveIntensity: selected ? 0.8 : hovered ? 0.5 : 0.1,
+      roughness: 0.1,
+      metalness: 0.8,
+    });
+    markerMaterialCache.set(key, mat);
+  }
+  return mat;
+}
+
+function getRingMaterial(color: string): THREE.MeshBasicMaterial {
+  let mat = ringMaterialCache.get(color);
+  if (!mat) {
+    mat = new THREE.MeshBasicMaterial({
+      color: color,
+      transparent: true,
+      opacity: 0.6,
+      side: THREE.DoubleSide,
+    });
+    ringMaterialCache.set(color, mat);
+  }
+  return mat;
+}
+
 export function ResourceMarker({
   position,
   label,
@@ -37,37 +79,28 @@ export function ResourceMarker({
   const color = statusColorMap[status];
   const prefersReducedMotion = useReducedMotion();
 
-  // Defer HTML mounting to avoid React 19 / Drei synchronous unmount warning
-  // triggered by StrictMode or Suspense aborts during initial render phase.
+  // Safely mount HTML overlay on animation frame to prevent React 19 concurrent unmount collision
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsMounted(true);
-    }, 50); // Small macro-task delay to allow React Suspense/StrictMode boundaries to settle
+    let active = true;
+    const raf = requestAnimationFrame(() => {
+      if (active) setIsMounted(true);
+    });
     return () => {
-      clearTimeout(timer);
+      active = false;
+      cancelAnimationFrame(raf);
       setIsMounted(false);
     };
   }, []);
 
-  // Material setup - memorized for performance
-  const markerMaterial = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: color,
-        emissive: color,
-        emissiveIntensity: selected ? 0.8 : hovered ? 0.5 : 0.1,
-        roughness: 0.1,
-        metalness: 0.8,
-      }),
-    [color, hovered, selected],
-  );
+  const markerMaterial = getMarkerMaterial(color, selected, hovered);
+  const ringMaterial = getRingMaterial(color);
 
   return (
     <group position={position}>
       <Float
-        speed={prefersReducedMotion ? 0 : 2} // Animation speed
-        rotationIntensity={prefersReducedMotion ? 0 : 0.2} // XYZ rotation intensity
-        floatIntensity={prefersReducedMotion ? 0 : 0.5} // Up/down float intensity
+        speed={prefersReducedMotion ? 0 : 2}
+        rotationIntensity={prefersReducedMotion ? 0 : 0.2}
+        floatIntensity={prefersReducedMotion ? 0 : 0.5}
         floatingRange={prefersReducedMotion ? [0, 0] : [-0.1, 0.1]}
       >
         {/* Core Marker Geometry */}
@@ -86,24 +119,19 @@ export function ResourceMarker({
             setHovered(false);
             document.body.style.cursor = "default";
           }}
+          geometry={markerGeometry}
           material={markerMaterial}
           castShadow
-        >
-          {/* A sleek diamond/octahedron shape for the marker */}
-          <octahedronGeometry args={[0.5, 0]} />
-        </mesh>
+        />
 
         {/* Selected Ring */}
         {selected && (
-          <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, -0.6, 0]}>
-            <ringGeometry args={[0.7, 0.8, 32]} />
-            <meshBasicMaterial
-              color={color}
-              transparent
-              opacity={0.6}
-              side={THREE.DoubleSide}
-            />
-          </mesh>
+          <mesh
+            rotation={[Math.PI / 2, 0, 0]}
+            position={[0, -0.6, 0]}
+            geometry={ringGeometry}
+            material={ringMaterial}
+          />
         )}
 
         {/* HTML UI Panel (anchored to 3D position) */}
@@ -111,27 +139,26 @@ export function ResourceMarker({
           <Html
             position={[0, 0.8, 0]}
             center
-            distanceFactor={16} // Increased for better legibility at default camera distances
+            distanceFactor={16}
             zIndexRange={[100, 0]}
             style={{
-              transition: "all 0.2s",
+              transition: "opacity 0.2s ease-out, transform 0.2s ease-out",
               opacity: hovered || selected ? 1 : 0.85,
             }}
-            // Hide if too far or blocked logic could go here
           >
             <button
               type="button"
               aria-label={`${label}. ${count} resources. Status: ${status}.`}
               className={cn(
                 "flex cursor-pointer select-none flex-col items-center gap-1 transition-transform outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-full",
-                selected ? "scale-110" : "scale-100 hover:scale-[1.03]",
+                selected ? "scale-110" : "scale-100 hover:scale-[1.03]"
               )}
               onClick={(e) => {
                 e.stopPropagation();
                 onClick?.();
               }}
             >
-              <div className="flex items-center gap-2 whitespace-nowrap rounded-full border border-white/20 bg-[#0B1224]/95 px-4 py-1.5 font-sans shadow-xl backdrop-blur-md">
+              <div className="flex items-center gap-2 whitespace-nowrap rounded-full border border-white/20 bg-[#0B1224] px-4 py-1.5 font-sans shadow-xl">
                 <span
                   className="h-2.5 w-2.5 rounded-full shadow-[0_0_8px_rgba(0,0,0,0.5)]"
                   style={{ backgroundColor: color, boxShadow: `0 0 10px ${color}` }}
@@ -142,7 +169,7 @@ export function ResourceMarker({
 
               {/* Contextual tooltip content only visible when selected */}
               {selected && (
-                <div className="mt-1.5 w-max rounded-[var(--radius-md)] border border-border/80 bg-[#101A31]/95 p-3.5 text-center shadow-2xl backdrop-blur mx-auto cursor-default">
+                <div className="mt-1.5 w-max rounded-[var(--radius-md)] border border-border/80 bg-[#101A31] p-3.5 text-center shadow-2xl mx-auto cursor-default">
                   <p className="text-[11px] uppercase tracking-widest text-muted-foreground font-semibold mb-1">
                     Status
                   </p>

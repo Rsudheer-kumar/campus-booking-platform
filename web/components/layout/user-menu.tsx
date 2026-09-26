@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { LogOut, Settings, User } from "lucide-react";
+import Link from "next/link";
+import { LogOut, Settings, User, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function UserMenu() {
@@ -64,6 +65,16 @@ export function UserMenu() {
 
           {/* Menu Items */}
           <div className="p-1 space-y-0.5">
+            <Link
+              href="/"
+              prefetch={true}
+              onClick={() => setIsOpen(false)}
+              className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-sm text-muted outline-none transition-colors hover:bg-white/[0.04] hover:text-foreground focus:bg-white/[0.04] focus:text-foreground"
+              role="menuitem"
+            >
+              <Globe className="h-4 w-4" aria-hidden="true" />
+              View CampusFlow
+            </Link>
             <button
               onClick={() => setIsOpen(false)}
               className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-sm text-muted outline-none transition-colors hover:bg-white/[0.04] hover:text-foreground focus:bg-white/[0.04] focus:text-foreground"
