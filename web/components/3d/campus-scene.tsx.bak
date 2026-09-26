@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Html, useProgress } from "@react-three/drei";
+import { OrbitControls, Preload, Html, useProgress } from "@react-three/drei";
 
 import { CampusGround } from "./campus-ground";
 import { CampusPaths } from "./campus-paths";
@@ -38,8 +38,8 @@ const BUILDINGS = [
   {
     id: "bld-cs",
     label: "Computer Science",
-    position: [-8.5, 2.5, -5.5] as [number, number, number],
-    size: [6, 5, 8] as [number, number, number],
+    position: [-8.5, 2.5, -5] as [number, number, number],
+    size: [6, 5, 8] as [number, number, number], // w,h,d -> position.y must be size.y/2
     type: "lab" as const,
     resourcesCount: 18,
     status: "available" as ResourceStatus,
@@ -47,7 +47,7 @@ const BUILDINGS = [
   {
     id: "bld-ai",
     label: "AI Research",
-    position: [6.5, 3, -5.5] as [number, number, number],
+    position: [6.5, 3, -6.5] as [number, number, number],
     size: [7, 6, 9] as [number, number, number],
     type: "research" as const,
     resourcesCount: 4,
@@ -65,7 +65,7 @@ const BUILDINGS = [
   {
     id: "bld-seminar",
     label: "Seminar Hall",
-    position: [-6.5, 1.5, 5.5] as [number, number, number],
+    position: [-6.5, 1.5, 6.5] as [number, number, number],
     size: [8, 3, 7] as [number, number, number],
     type: "seminar" as const,
     resourcesCount: 2,
@@ -74,8 +74,8 @@ const BUILDINGS = [
   {
     id: "bld-sports",
     label: "Sports Complex",
-    position: [0, 2.5, -14] as [number, number, number], // Moved to the background
-    size: [12, 5, 8] as [number, number, number],
+    position: [0, 2, 14] as [number, number, number],
+    size: [12, 4, 8] as [number, number, number],
     type: "sports" as const,
     resourcesCount: 8,
     status: "maintenance" as ResourceStatus,
@@ -98,7 +98,7 @@ export function CampusScene({
       <Canvas
         shadows
         dpr={[1, 1.5]} // Reduced max DPR from 2 to 1.5 for better mobile/desktop initial performance
-        camera={{ position: [20, 16, 26], fov: 40 }} // Adjusted for better campus composition
+        camera={{ position: [18, 14, 22], fov: 42 }}
         style={{
           width: "100%",
           height: "100%",
@@ -150,6 +150,7 @@ export function CampusScene({
             enablePan={false} // Restrict infinite panning
             target={[0, 0, 0]}
           />
+          <Preload all />
         </Suspense>
       </Canvas>
     </WebGLErrorBoundary>
