@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, useCallback } from "react";
+import { Suspense, useCallback, useEffect, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 import { CampusGround } from "./campus-ground";
 import { CampusPaths } from "./campus-paths";
@@ -70,6 +71,9 @@ export function CampusScene({
   onSelectBuilding,
   selectedBuildingId,
 }: CampusSceneProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<OrbitControlsImpl>(null);
+
   const handleSelect = useCallback(
     (id: string) => {
       onSelectBuilding?.(id === selectedBuildingId ? null : id);
@@ -77,65 +81,92 @@ export function CampusScene({
     [onSelectBuilding, selectedBuildingId],
   );
 
+  // Intercept the native wheel event before OrbitControls gets it.
+  // We dynamically toggle enableZoom on the OrbitControls instance
+  // based on whether Ctrl/Cmd is pressed. This allows normal wheel
+  // scrolling to pass through to the page natively, while Ctrl+Wheel zooms.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (controlsRef.current) {
+        controlsRef.current.enableZoom = e.ctrlKey || e.metaKey;
+      }
+    };
+
+    container.addEventListener("wheel", handleWheel, { capture: true, passive: true });
+    return () => container.removeEventListener("wheel", handleWheel, { capture: true });
+  }, []);
+
   return (
-    <WebGLErrorBoundary fallback={<SceneFallback />}>
-      <Canvas
-        shadows
-        dpr={[1, 1.5]} // Reduced max DPR from 2 to 1.5 for better mobile/desktop initial performance
-        camera={{ position: [20, 16, 26], fov: 40 }} // Adjusted for better campus composition
-        style={{
-          width: "100%",
-          height: "100%",
-          background: "#050816",
-        }}
-      >
-        <Suspense fallback={null}>
-          <SceneEnvironment />
-          <CampusGround />
-          <CampusPaths />
+    <div ref={containerRef} className="w-full h-full relative group">
+      {/* Desktop Interaction Hint */}
+      <div className="absolute bottom-4 right-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none hidden sm:flex items-center gap-2 bg-[#0B1224]/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-[#1E2A44] text-[#94A3B8] text-[11px] font-medium tracking-wide shadow-lg">
+        Drag to orbit &bull; Ctrl + scroll to zoom
+      </div>
 
-          {/* Procedural Buildings */}
-          {BUILDINGS.map((b) => {
-            const isSelected = selectedBuildingId === b.id;
-            return (
-              <group key={b.id}>
-                <CampusBuilding
-                  position={b.position}
-                  size={b.size}
-                  type={b.type}
-                  selected={isSelected}
-                  onClick={() => handleSelect(b.id)}
-                />
-                <ResourceMarker
-                  // Place marker directly above building roof
-                  position={[
-                    b.position[0],
-                    b.position[1] + b.size[1] / 2 + 1.2,
-                    b.position[2],
-                  ]}
-                  label={b.label}
-                  count={b.resourcesCount}
-                  status={b.status}
-                  selected={isSelected}
-                  onClick={() => handleSelect(b.id)}
-                />
-              </group>
-            );
-          })}
+      <WebGLErrorBoundary fallback={<SceneFallback />}>
+        <Canvas
+          shadows
+          dpr={[1, 1.5]} // Reduced max DPR from 2 to 1.5 for better mobile/desktop initial performance
+          camera={{ position: [20, 16, 26], fov: 40 }} // Adjusted for better campus composition
+          style={{
+            width: "100%",
+            height: "100%",
+            background: "#050816",
+          }}
+        >
+          <Suspense fallback={null}>
+            <SceneEnvironment />
+            <CampusGround />
+            <CampusPaths />
 
-          {/* User Interaction Controls */}
-          <OrbitControls
-            makeDefault
-            enableDamping
-            dampingFactor={0.05}
-            minDistance={10}
-            maxDistance={55}
-            maxPolarAngle={Math.PI / 2.1} // Prevent camera going underground
-            enablePan={false} // Restrict infinite panning
-            target={[0, 0, 0]}
-          />
-        </Suspense>
-      </Canvas>
-    </WebGLErrorBoundary>
+            {/* Procedural Buildings */}
+            {BUILDINGS.map((b) => {
+              const isSelected = selectedBuildingId === b.id;
+              return (
+                <group key={b.id}>
+                  <CampusBuilding
+                    position={b.position}
+                    size={b.size}
+                    type={b.type}
+                    selected={isSelected}
+                    onClick={() => handleSelect(b.id)}
+                  />
+                  <ResourceMarker
+                    // Place marker directly above building roof
+                    position={[
+                      b.position[0],
+                      b.position[1] + b.size[1] / 2 + 1.2,
+                      b.position[2],
+                    ]}
+                    label={b.label}
+                    count={b.resourcesCount}
+                    status={b.status}
+                    selected={isSelected}
+                    onClick={() => handleSelect(b.id)}
+                  />
+                </group>
+              );
+            })}
+
+            {/* User Interaction Controls */}
+            <OrbitControls
+              ref={controlsRef}
+              makeDefault
+              enableDamping
+              dampingFactor={0.05}
+              minDistance={10}
+              maxDistance={55}
+              maxPolarAngle={Math.PI / 2.1} // Prevent camera going underground
+              enablePan={false} // Restrict infinite panning
+              enableZoom={true}
+              target={[0, 0, 0]}
+            />
+          </Suspense>
+        </Canvas>
+      </WebGLErrorBoundary>
+    </div>
   );
 }
