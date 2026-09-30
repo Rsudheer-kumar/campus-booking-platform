@@ -92,6 +92,13 @@ export const UserSchema = new Schema<IUser>(
   }
 );
 
+// Pre-validate hook: normalize department whitespace
+UserSchema.pre('validate', function () {
+  if (this.department && typeof this.department === 'string') {
+    this.department = this.department.trim().replace(/\s+/g, ' ');
+  }
+});
+
 // Indexes
 UserSchema.index({ roles: 1 });
 

@@ -6,13 +6,12 @@
 import mongoose, { Schema, type Model, type HydratedDocument } from 'mongoose';
 
 export const ResourceCategory = {
-  FACILITY: 'FACILITY',
-  LABORATORY: 'LABORATORY',
   CLASSROOM: 'CLASSROOM',
-  SPORTS: 'SPORTS',
+  LABORATORY: 'LABORATORY',
+  SPORTS_FACILITY: 'SPORTS_FACILITY',
   EQUIPMENT: 'EQUIPMENT',
-  MEETING_SPACE: 'MEETING_SPACE',
-  VEHICLE: 'VEHICLE',
+  MEETING_ROOM: 'MEETING_ROOM',
+  AUDITORIUM: 'AUDITORIUM',
   OTHER: 'OTHER',
 } as const;
 
@@ -56,7 +55,7 @@ export const ResourceTypeSchema = new Schema<IResourceType>(
         values: Object.values(ResourceCategory),
         message: 'Invalid resource category: {VALUE}',
       },
-      default: ResourceCategory.FACILITY,
+      default: ResourceCategory.OTHER,
       required: true,
       index: true,
     },

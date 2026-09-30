@@ -251,6 +251,28 @@ describe('CampusFlow Domain Models & Database Integration Tests', () => {
       assert.ok(resourceType.createdAt instanceof Date);
     });
 
+    it('should accept all 7 canonical CampusFlow resource categories', async () => {
+      const canonicalCategories = [
+        ResourceCategory.CLASSROOM,
+        ResourceCategory.LABORATORY,
+        ResourceCategory.SPORTS_FACILITY,
+        ResourceCategory.EQUIPMENT,
+        ResourceCategory.MEETING_ROOM,
+        ResourceCategory.AUDITORIUM,
+        ResourceCategory.OTHER,
+      ];
+
+      for (const cat of canonicalCategories) {
+        const rt = await ResourceType.create({
+          name: `Type for ${cat}`,
+          code: `TEST_CAT_${cat}_${Date.now()}`,
+          category: cat,
+        });
+        createdResourceTypeIds.push(rt._id.toString());
+        assert.strictEqual(rt.category, cat);
+      }
+    });
+
     it('should reject missing required fields (name, code)', async () => {
       await assert.rejects(
         async () => {
@@ -288,7 +310,7 @@ describe('CampusFlow Domain Models & Database Integration Tests', () => {
       const firstType = await ResourceType.create({
         name: 'Original Type',
         code,
-        category: ResourceCategory.FACILITY,
+        category: ResourceCategory.OTHER,
       });
       createdResourceTypeIds.push(firstType._id.toString());
 
@@ -297,7 +319,7 @@ describe('CampusFlow Domain Models & Database Integration Tests', () => {
           await ResourceType.create({
             name: 'Second Type Same Code',
             code,
-            category: ResourceCategory.FACILITY,
+            category: ResourceCategory.OTHER,
           });
         },
         (err: unknown) => {
