@@ -1,0 +1,282 @@
+/**
+ * CampusFlow API - Booking Request Validators
+ * Request payload and query parameter validators for reservation operations.
+ */
+
+import type { ValidationResult, ValidationIssue } from '../middleware/validate';
+import { isValidIanaTimezone, isValidCalendarDate } from '../models';
+import { ReservationStatus, type ReservationStatusType } from '../models/reservation.model';
+
+const MONGO_ID_REGEX = /^[0-9a-fA-F]{24}$/;
+
+export interface CreateBookingBodyInput {
+  resourceId: string;
+  userId: string;
+  startAt: string;
+  endAt: string;
+  timezone: string;
+  title: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export function validateCreateBookingBody(data: unknown): ValidationResult<CreateBookingBodyInput> {
+  const record = (data || {}) as Record<string, unknown>;
+  const errors: ValidationIssue[] = [];
+
+  // resourceId
+  if (!record.resourceId || typeof record.resourceId !== 'string' || !MONGO_ID_REGEX.test(record.resourceId)) {
+    errors.push({ field: 'resourceId', message: 'resourceId must be a valid 24-character hex ObjectId' });
+  }
+
+  // userId
+  if (!record.userId || typeof record.userId !== 'string' || !MONGO_ID_REGEX.test(record.userId)) {
+    errors.push({ field: 'userId', message: 'userId must be a valid 24-character hex ObjectId' });
+  }
+
+  // startAt
+  let startAtDate: Date | null = null;
+  if (!record.startAt || typeof record.startAt !== 'string') {
+    errors.push({ field: 'startAt', message: 'startAt is required and must be an ISO date string' });
+  } else {
+    startAtDate = new Date(record.startAt);
+    if (isNaN(startAtDate.getTime())) {
+      errors.push({ field: 'startAt', message: 'startAt is not a valid date string' });
+    }
+  }
+
+  // endAt
+  let endAtDate: Date | null = null;
+  if (!record.endAt || typeof record.endAt !== 'string') {
+    errors.push({ field: 'endAt', message: 'endAt is required and must be an ISO date string' });
+  } else {
+    endAtDate = new Date(record.endAt);
+    if (isNaN(endAtDate.getTime())) {
+      errors.push({ field: 'endAt', message: 'endAt is not a valid date string' });
+    }
+  }
+
+  if (startAtDate && endAtDate && !isNaN(startAtDate.getTime()) && !isNaN(endAtDate.getTime())) {
+    if (startAtDate.getTime() >= endAtDate.getTime()) {
+      errors.push({ field: 'startAt', message: 'startAt must be earlier than endAt for a half-open interval' });
+    }
+  }
+
+  // timezone
+  if (!record.timezone || typeof record.timezone !== 'string') {
+    errors.push({ field: 'timezone', message: 'timezone is required' });
+  } else if (!isValidIanaTimezone(record.timezone)) {
+    errors.push({ field: 'timezone', message: `Invalid IANA timezone identifier: "${record.timezone}"` });
+  }
+
+  // title
+  if (!record.title || typeof record.title !== 'string') {
+    errors.push({ field: 'title', message: 'title is required' });
+  } else if (record.title.trim().length < 2 || record.title.trim().length > 200) {
+    errors.push({ field: 'title', message: 'title must be between 2 and 200 characters' });
+  }
+
+  // description
+  if (record.description !== undefined && typeof record.description !== 'string') {
+    errors.push({ field: 'description', message: 'description must be a string' });
+  } else if (typeof record.description === 'string' && record.description.length > 1000) {
+    errors.push({ field: 'description', message: 'description cannot exceed 1000 characters' });
+  }
+
+  if (errors.length > 0) {
+    return { success: false, errors };
+  }
+
+  return {
+    success: true,
+    data: {
+      resourceId: record.resourceId as string,
+      userId: record.userId as string,
+      startAt: record.startAt as string,
+      endAt: record.endAt as string,
+      timezone: record.timezone as string,
+      title: (record.title as string).trim(),
+      description: typeof record.description === 'string' ? record.description.trim() : undefined,
+      metadata: typeof record.metadata === 'object' && record.metadata !== null ? (record.metadata as Record<string, unknown>) : undefined,
+    },
+  };
+}
+
+export interface CancelBookingBodyInput {
+  userId?: string;
+  reason?: string;
+}
+
+export function validateCancelBookingBody(data: unknown): ValidationResult<CancelBookingBodyInput> {
+  const record = (data || {}) as Record<string, unknown>;
+  const errors: ValidationIssue[] = [];
+
+  if (record.userId !== undefined) {
+    if (typeof record.userId !== 'string' || !MONGO_ID_REGEX.test(record.userId)) {
+      errors.push({ field: 'userId', message: 'userId must be a valid 24-character hex ObjectId' });
+    }
+  }
+
+  if (record.reason !== undefined) {
+    if (typeof record.reason !== 'string' || record.reason.length > 500) {
+      errors.push({ field: 'reason', message: 'reason must be a string not exceeding 500 characters' });
+    }
+  }
+
+  if (errors.length > 0) {
+    return { success: false, errors };
+  }
+
+  return {
+    success: true,
+    data: {
+      userId: record.userId as string | undefined,
+      reason: typeof record.reason === 'string' ? record.reason.trim() : undefined,
+    },
+  };
+}
+
+export interface TransitionBookingStatusBodyInput {
+  status: ReservationStatusType;
+  userId?: string;
+  reason?: string;
+}
+
+export function validateTransitionBookingStatusBody(data: unknown): ValidationResult<TransitionBookingStatusBodyInput> {
+  const record = (data || {}) as Record<string, unknown>;
+  const errors: ValidationIssue[] = [];
+
+  const validStatuses = Object.values(ReservationStatus);
+  if (!record.status || !validStatuses.includes(record.status as ReservationStatusType)) {
+    errors.push({ field: 'status', message: `status must be one of: ${validStatuses.join(', ')}` });
+  }
+
+  if (record.userId !== undefined) {
+    if (typeof record.userId !== 'string' || !MONGO_ID_REGEX.test(record.userId)) {
+      errors.push({ field: 'userId', message: 'userId must be a valid 24-character hex ObjectId' });
+    }
+  }
+
+  if (record.reason !== undefined) {
+    if (typeof record.reason !== 'string' || record.reason.length > 500) {
+      errors.push({ field: 'reason', message: 'reason must be a string not exceeding 500 characters' });
+    }
+  }
+
+  if (errors.length > 0) {
+    return { success: false, errors };
+  }
+
+  return {
+    success: true,
+    data: {
+      status: record.status as ReservationStatusType,
+      userId: record.userId as string | undefined,
+      reason: typeof record.reason === 'string' ? record.reason.trim() : undefined,
+    },
+  };
+}
+
+export interface CheckAvailabilityQueryInput {
+  resourceId: string;
+  startAt: string;
+  endAt: string;
+  excludeReservationId?: string;
+}
+
+export function validateCheckAvailabilityQuery(data: unknown): ValidationResult<CheckAvailabilityQueryInput> {
+  const record = (data || {}) as Record<string, unknown>;
+  const errors: ValidationIssue[] = [];
+
+  if (!record.resourceId || typeof record.resourceId !== 'string' || !MONGO_ID_REGEX.test(record.resourceId)) {
+    errors.push({ field: 'resourceId', message: 'resourceId is required and must be a 24-character hex ObjectId' });
+  }
+
+  let startAtDate: Date | null = null;
+  if (!record.startAt || typeof record.startAt !== 'string') {
+    errors.push({ field: 'startAt', message: 'startAt is required and must be an ISO date string' });
+  } else {
+    startAtDate = new Date(record.startAt);
+    if (isNaN(startAtDate.getTime())) {
+      errors.push({ field: 'startAt', message: 'startAt is not a valid date string' });
+    }
+  }
+
+  let endAtDate: Date | null = null;
+  if (!record.endAt || typeof record.endAt !== 'string') {
+    errors.push({ field: 'endAt', message: 'endAt is required and must be an ISO date string' });
+  } else {
+    endAtDate = new Date(record.endAt);
+    if (isNaN(endAtDate.getTime())) {
+      errors.push({ field: 'endAt', message: 'endAt is not a valid date string' });
+    }
+  }
+
+  if (startAtDate && endAtDate && !isNaN(startAtDate.getTime()) && !isNaN(endAtDate.getTime())) {
+    if (startAtDate.getTime() >= endAtDate.getTime()) {
+      errors.push({ field: 'startAt', message: 'startAt must be earlier than endAt for a half-open interval' });
+    }
+  }
+
+  if (record.excludeReservationId !== undefined) {
+    if (typeof record.excludeReservationId !== 'string' || !MONGO_ID_REGEX.test(record.excludeReservationId)) {
+      errors.push({ field: 'excludeReservationId', message: 'excludeReservationId must be a 24-character hex ObjectId' });
+    }
+  }
+
+  if (errors.length > 0) {
+    return { success: false, errors };
+  }
+
+  return {
+    success: true,
+    data: {
+      resourceId: record.resourceId as string,
+      startAt: record.startAt as string,
+      endAt: record.endAt as string,
+      excludeReservationId: record.excludeReservationId as string | undefined,
+    },
+  };
+}
+
+export interface CalculateSlotsQueryInput {
+  resourceId: string;
+  date: string;
+  slotDurationMinutes?: number;
+}
+
+export function validateCalculateSlotsQuery(data: unknown): ValidationResult<CalculateSlotsQueryInput> {
+  const record = (data || {}) as Record<string, unknown>;
+  const errors: ValidationIssue[] = [];
+
+  if (!record.resourceId || typeof record.resourceId !== 'string' || !MONGO_ID_REGEX.test(record.resourceId)) {
+    errors.push({ field: 'resourceId', message: 'resourceId is required and must be a 24-character hex ObjectId' });
+  }
+
+  if (!record.date || typeof record.date !== 'string' || !isValidCalendarDate(record.date)) {
+    errors.push({ field: 'date', message: 'date is required and must be in YYYY-MM-DD calendar format' });
+  }
+
+  let slotDuration: number | undefined;
+  if (record.slotDurationMinutes !== undefined) {
+    const parsed = Number(record.slotDurationMinutes);
+    if (!Number.isInteger(parsed) || parsed < 5 || parsed > 1440) {
+      errors.push({ field: 'slotDurationMinutes', message: 'slotDurationMinutes must be an integer between 5 and 1440' });
+    } else {
+      slotDuration = parsed;
+    }
+  }
+
+  if (errors.length > 0) {
+    return { success: false, errors };
+  }
+
+  return {
+    success: true,
+    data: {
+      resourceId: record.resourceId as string,
+      date: record.date as string,
+      slotDurationMinutes: slotDuration,
+    },
+  };
+}

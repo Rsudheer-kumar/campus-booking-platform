@@ -1,7 +1,9 @@
 /**
  * CampusFlow API - Data Model Layer Foundation
  * Central export point for Mongoose domain schemas and models.
- * Exports foundational models: User, ResourceType, Resource, ResourceAttribute, Custodian.
+ * Exports foundational models:
+ * - Identity & Resource: User, ResourceType, Resource, ResourceAttributeSchema, Custodian
+ * - Availability, Blackout & Quota: AvailabilityRule, Blackout, Quota
  */
 
 // User
@@ -50,3 +52,63 @@ export {
   type IResourceLocation,
   type ResourceDocument,
 } from './resource.model';
+
+// AvailabilityRule
+export {
+  AvailabilityRule,
+  AvailabilityRuleSchema,
+  AvailabilityWindowSchema,
+  BookingPolicySchema,
+  DayOfWeek,
+  isValidIanaTimezone,
+  isValidCalendarDate,
+  timeStringToMinutes,
+  type IAvailabilityRule,
+  type IAvailabilityWindow,
+  type IBookingPolicy,
+  type DayOfWeekType,
+  type AvailabilityRuleDocument,
+} from './availabilityRule.model';
+
+// Utility functions
+export { normalizeDepartmentName } from '../utils/dateValidation';
+
+// Blackout
+export {
+  Blackout,
+  BlackoutSchema,
+  BlackoutCategory,
+  type IBlackout,
+  type BlackoutCategoryType,
+  type BlackoutDocument,
+} from './blackout.model';
+
+// Quota
+export {
+  Quota,
+  QuotaSchema,
+  QuotaScopeType,
+  QuotaSubjectType,
+  QuotaMetric,
+  QuotaPeriod,
+  type IQuota,
+  type QuotaScopeTypeValue,
+  type QuotaSubjectTypeValue,
+  type QuotaMetricType,
+  type QuotaPeriodType,
+  type QuotaDocument,
+} from './quota.model';
+
+// Reservation / Booking (Phase 2.5)
+export {
+  Reservation,
+  ReservationSchema,
+  ReservationStatus,
+  ACTIVE_RESERVATION_STATES,
+  TERMINAL_RESERVATION_STATES,
+  VALID_STATUS_TRANSITIONS,
+  isValidReservationTransition,
+  type IReservation,
+  type ReservationStatusType,
+  type ReservationDocument,
+} from './reservation.model';

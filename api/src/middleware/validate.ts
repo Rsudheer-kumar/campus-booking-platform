@@ -48,7 +48,12 @@ export function validateRequest(schema: RequestValidationSchema) {
       if (!result.success && result.errors) {
         issues.push(...result.errors.map((e) => ({ ...e, field: `query.${e.field}` })));
       } else if (result.data && typeof result.data === 'object') {
-        req.query = result.data as unknown as Request['query'];
+        Object.defineProperty(req, 'query', {
+          value: result.data,
+          writable: true,
+          configurable: true,
+          enumerable: true,
+        });
       }
     }
 

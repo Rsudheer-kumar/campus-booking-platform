@@ -6,11 +6,15 @@
 
 import { Router } from 'express';
 import healthRoutes from './health.routes';
+import bookingRoutes from './booking.routes';
 
 const router = Router();
 
 // Health & diagnostics endpoint: /api/health
 router.use('/health', healthRoutes);
+
+// Booking engine endpoints: /api/bookings
+router.use('/bookings', bookingRoutes);
 
 /**
  * Future API domain routes will be mounted here:
