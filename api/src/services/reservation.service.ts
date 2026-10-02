@@ -137,10 +137,11 @@ export class ReservationService {
         if (!availability.available) {
           if (
             availability.reason === 'RESERVATION_CONFLICT' ||
-            availability.reason === 'BLACKOUT_CONFLICT'
+            availability.reason === 'BLACKOUT_CONFLICT' ||
+            availability.reason === 'TIMETABLE_CONFLICT'
           ) {
             throw new ConflictError(
-              availability.message || 'The requested time slot conflicts with an existing reservation or blackout',
+              availability.message || 'The requested time slot conflicts with an existing reservation, blackout, or timetable',
               availability.details
             );
           }

@@ -89,8 +89,10 @@ export function Modal({
       <div
         ref={panelRef}
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)]",
+          "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[calc(100%-2rem)]",
           sizeMap[size],
+          "max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]",
+          "flex flex-col",
           "surface-elevated rounded-[var(--radius-xl)] p-6",
           "focus:outline-none",
           className,
@@ -99,7 +101,7 @@ export function Modal({
         {...props}
       >
         {/* Header */}
-        <div className="mb-4 flex items-start justify-between gap-4">
+        <div className="mb-4 flex shrink-0 items-start justify-between gap-4">
           <div>
             {title && (
               <h2 className="text-lg font-semibold text-foreground">
@@ -125,7 +127,9 @@ export function Modal({
         </div>
 
         {/* Body */}
-        <div>{children}</div>
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-0.5">
+          {children}
+        </div>
       </div>
     </div>
   );

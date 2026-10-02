@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Plus, ArrowRight, LayoutDashboard, CalendarDays } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -175,20 +176,24 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="mt-auto space-y-3 pt-4 border-t border-border/50">
-                    <Button
-                      className="w-full justify-between group"
-                      variant="primary"
-                    >
-                      View Resources
-                      <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-                    </Button>
-                    <Button
-                      className="w-full justify-between"
-                      variant="secondary"
-                    >
-                      View Availability
-                      <CalendarDays className="h-4 w-4" />
-                    </Button>
+                    <Link href="/dashboard/resources" className="block w-full">
+                      <Button
+                        className="w-full justify-between group"
+                        variant="primary"
+                      >
+                        View Resources
+                        <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                      </Button>
+                    </Link>
+                    <Link href="/dashboard/calendar" className="block w-full">
+                      <Button
+                        className="w-full justify-between"
+                        variant="secondary"
+                      >
+                        View Availability
+                        <CalendarDays className="h-4 w-4" />
+                      </Button>
+                    </Link>
                   </div>
                 </div>
               ) : (

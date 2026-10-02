@@ -10,6 +10,7 @@ export type ErrorCode =
   | 'NOT_FOUND'
   | 'CONFLICT'
   | 'VALIDATION_ERROR'
+  | 'UNPROCESSABLE_ENTITY'
   | 'INVALID_JSON'
   | 'ROUTE_NOT_FOUND'
   | 'INTERNAL_SERVER_ERROR';
@@ -77,5 +78,11 @@ export class InternalServerError extends AppError {
 export class ValidationError extends AppError {
   constructor(message = 'Validation failed', details?: unknown) {
     super(400, 'VALIDATION_ERROR', message, details);
+  }
+}
+
+export class UnprocessableEntityError extends AppError {
+  constructor(message = 'Unprocessable Entity', details?: unknown) {
+    super(422, 'UNPROCESSABLE_ENTITY', message, details);
   }
 }

@@ -11,7 +11,7 @@ const MONGO_ID_REGEX = /^[0-9a-fA-F]{24}$/;
 
 export interface CreateBookingBodyInput {
   resourceId: string;
-  userId: string;
+  userId?: string;
   startAt: string;
   endAt: string;
   timezone: string;
@@ -29,9 +29,11 @@ export function validateCreateBookingBody(data: unknown): ValidationResult<Creat
     errors.push({ field: 'resourceId', message: 'resourceId must be a valid 24-character hex ObjectId' });
   }
 
-  // userId
-  if (!record.userId || typeof record.userId !== 'string' || !MONGO_ID_REGEX.test(record.userId)) {
-    errors.push({ field: 'userId', message: 'userId must be a valid 24-character hex ObjectId' });
+  // userId (optional - for on-behalf booking by DEPARTMENT_HEAD, otherwise uses req.user)
+  if (record.userId !== undefined) {
+    if (typeof record.userId !== 'string' || !MONGO_ID_REGEX.test(record.userId)) {
+      errors.push({ field: 'userId', message: 'userId must be a valid 24-character hex ObjectId' });
+    }
   }
 
   // startAt
@@ -91,7 +93,7 @@ export function validateCreateBookingBody(data: unknown): ValidationResult<Creat
     success: true,
     data: {
       resourceId: record.resourceId as string,
-      userId: record.userId as string,
+      userId: typeof record.userId === 'string' ? record.userId : undefined,
       startAt: record.startAt as string,
       endAt: record.endAt as string,
       timezone: record.timezone as string,

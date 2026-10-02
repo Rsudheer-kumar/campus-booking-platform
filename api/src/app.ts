@@ -6,6 +6,7 @@
 
 import express, { type Application, type Request, type Response } from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { env } from './config/env';
 import { requestLogger } from './middleware/requestLogger';
 import { errorHandler } from './middleware/errorHandler';
@@ -50,6 +51,9 @@ export function createApp(): Application {
   // 3. Body Parsing Middleware
   app.use(express.json({ limit: '10kb' }));
   app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+
+  // 3.5. Cookie Parsing Middleware
+  app.use(cookieParser());
 
   // 4. Request Logging
   app.use(requestLogger);

@@ -1,4 +1,5 @@
 import { AppLayout } from "@/components/layout";
+import { AuthProvider } from "@/lib/auth";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -11,5 +12,9 @@ export default function DashboardLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  return <AppLayout>{children}</AppLayout>;
+  return (
+    <AuthProvider>
+      <AppLayout>{children}</AppLayout>
+    </AuthProvider>
+  );
 }

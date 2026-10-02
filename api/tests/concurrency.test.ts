@@ -32,6 +32,7 @@ import {
   type UserDocument,
 } from '../src/models';
 import { zonedTimeToUtc } from '../src/utils/timezone';
+import { signAccessToken } from '../src/utils/jwt';
 
 describe('CampusFlow Concurrency & Double-Booking Prevention Tests', () => {
   let server: Server;
@@ -41,6 +42,7 @@ describe('CampusFlow Concurrency & Double-Booking Prevention Tests', () => {
   let sharedResourceType: ResourceTypeDocument;
   let sharedResource: ResourceDocument;
   const users: UserDocument[] = [];
+  const tokens: string[] = [];
   const defaultTz = 'America/New_York';
 
   before(async () => {
@@ -106,6 +108,15 @@ describe('CampusFlow Concurrency & Double-Booking Prevention Tests', () => {
         isActive: true,
       });
       users.push(user);
+      tokens.push(
+        signAccessToken({
+          sub: user._id.toString(),
+          email: user.email,
+          roles: user.roles,
+          isActive: true,
+          tokenVersion: user.tokenVersion ?? 0,
+        })
+      );
     }
 
     // Start ephemeral server
@@ -143,10 +154,12 @@ describe('CampusFlow Concurrency & Double-Booking Prevention Tests', () => {
     const promises = users.map((user, idx) =>
       fetch(`${baseUrl}/api/bookings`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokens[idx]}`,
+        },
         body: JSON.stringify({
           resourceId: sharedResource._id.toString(),
-          userId: user._id.toString(),
           startAt,
           endAt,
           timezone: defaultTz,
@@ -210,10 +223,12 @@ describe('CampusFlow Concurrency & Double-Booking Prevention Tests', () => {
 
       return fetch(`${baseUrl}/api/bookings`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokens[idx]}`,
+        },
         body: JSON.stringify({
           resourceId: sharedResource._id.toString(),
-          userId: users[idx]._id.toString(),
           startAt,
           endAt,
           timezone: defaultTz,
@@ -282,10 +297,12 @@ describe('CampusFlow Concurrency & Double-Booking Prevention Tests', () => {
 
       return fetch(`${baseUrl}/api/bookings`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokens[idx]}`,
+        },
         body: JSON.stringify({
           resourceId: sharedResource._id.toString(),
-          userId: users[idx]._id.toString(),
           startAt,
           endAt,
           timezone: defaultTz,

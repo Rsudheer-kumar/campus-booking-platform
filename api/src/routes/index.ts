@@ -7,14 +7,26 @@
 import { Router } from 'express';
 import healthRoutes from './health.routes';
 import bookingRoutes from './booking.routes';
+import authRoutes from './auth.routes';
+import timetableRoutes from './timetable.routes';
+import resourceRoutes from './resource.routes';
 
 const router = Router();
+
+// Authentication endpoints: /api/auth
+router.use('/auth', authRoutes);
 
 // Health & diagnostics endpoint: /api/health
 router.use('/health', healthRoutes);
 
+// Facility & resource catalogue endpoints: /api/resources
+router.use('/resources', resourceRoutes);
+
 // Booking engine endpoints: /api/bookings
 router.use('/bookings', bookingRoutes);
+
+// Timetable integration endpoints: /api/timetables (Phase 3.1)
+router.use('/timetables', timetableRoutes);
 
 /**
  * Future API domain routes will be mounted here:

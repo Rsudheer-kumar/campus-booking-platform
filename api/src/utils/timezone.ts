@@ -184,3 +184,23 @@ export function getPeriodBounds(
 
   throw new Error(`Unsupported period: ${period}`);
 }
+
+/**
+ * Validates whether a given string is a valid IANA timezone name.
+ * Accepts standard IANA identifiers (e.g., "Asia/Kolkata", "America/New_York", "UTC", "GMT").
+ * Rejects informal abbreviations like "IST", "EST", "PST".
+ */
+export function isValidIanaTimezone(tz: string): boolean {
+  if (!tz || typeof tz !== 'string') return false;
+  // Reject informal abbreviations that lack an area/location prefix unless canonical UTC/GMT
+  if (tz !== 'UTC' && tz !== 'GMT' && !tz.includes('/')) {
+    return false;
+  }
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+

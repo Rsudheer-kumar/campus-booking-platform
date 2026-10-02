@@ -21,6 +21,7 @@ import mongoose from 'mongoose';
 import { connectDatabase, disconnectDatabase, isDatabaseConnected } from '../src/config/database';
 import { env } from '../src/config/env';
 import { app } from '../src/app';
+import { signAccessToken } from '../src/utils/jwt';
 import {
   User,
   UserRole,
@@ -657,6 +658,44 @@ describe('CampusFlow Reservation & Booking Engine Integration Tests (Phase 2.5)'
   /* ========================================================================= */
   describe('6. HTTP API Layer (/api/bookings)', () => {
     let createdBookingId: string;
+    let authToken: string;
+    let facilityManagerUser: UserDocument;
+    let facilityManagerToken: string;
+
+    before(async () => {
+      // Generate authentication token for the test user (creates bookings)
+      authToken = signAccessToken({
+        sub: sharedUser._id.toString(),
+        email: sharedUser.email,
+        roles: sharedUser.roles,
+        isActive: true,
+        tokenVersion: sharedUser.tokenVersion ?? 0,
+      });
+
+      // Create a FACILITY_MANAGER user for transition tests (required for COMPLETED status)
+      facilityManagerUser = await User.create({
+        name: `${TEST_PREFIX}Facility Manager`,
+        email: `${TEST_PREFIX}facility-manager@university.edu`,
+        roles: [UserRole.FACILITY_MANAGER],
+        department: 'Facilities',
+        isActive: true,
+      });
+
+      facilityManagerToken = signAccessToken({
+        sub: facilityManagerUser._id.toString(),
+        email: facilityManagerUser.email,
+        roles: facilityManagerUser.roles,
+        isActive: true,
+        tokenVersion: facilityManagerUser.tokenVersion ?? 0,
+      });
+    });
+
+    after(async () => {
+      // Clean up facility manager user
+      if (facilityManagerUser) {
+        await User.findByIdAndDelete(facilityManagerUser._id);
+      }
+    });
 
     it('POST /api/bookings should create a reservation (201 Created)', async () => {
       const startAt = zonedTimeToUtc('2026-10-16', '10:00', defaultTz).toISOString(); // Friday
@@ -664,10 +703,12 @@ describe('CampusFlow Reservation & Booking Engine Integration Tests (Phase 2.5)'
 
       const res = await fetch(`${baseUrl}/api/bookings`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
         body: JSON.stringify({
           resourceId: sharedResource._id.toString(),
-          userId: sharedUser._id.toString(),
           startAt,
           endAt,
           timezone: defaultTz,
@@ -691,10 +732,12 @@ describe('CampusFlow Reservation & Booking Engine Integration Tests (Phase 2.5)'
 
       const res = await fetch(`${baseUrl}/api/bookings`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
         body: JSON.stringify({
           resourceId: sharedResource._id.toString(),
-          userId: sharedUser._id.toString(),
           startAt,
           endAt,
           timezone: defaultTz,
@@ -709,7 +752,9 @@ describe('CampusFlow Reservation & Booking Engine Integration Tests (Phase 2.5)'
     });
 
     it('GET /api/bookings/:id should retrieve the reservation (200 OK)', async () => {
-      const res = await fetch(`${baseUrl}/api/bookings/${createdBookingId}`);
+      const res = await fetch(`${baseUrl}/api/bookings/${createdBookingId}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
       assert.strictEqual(res.status, 200);
 
       const body = (await res.json()) as TestApiResponse;
@@ -720,7 +765,9 @@ describe('CampusFlow Reservation & Booking Engine Integration Tests (Phase 2.5)'
     });
 
     it('GET /api/bookings should list reservations with filtering (200 OK)', async () => {
-      const res = await fetch(`${baseUrl}/api/bookings?resourceId=${sharedResource._id}`);
+      const res = await fetch(`${baseUrl}/api/bookings?resourceId=${sharedResource._id}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
       assert.strictEqual(res.status, 200);
 
       const body = (await res.json()) as TestApiResponse;
@@ -732,10 +779,12 @@ describe('CampusFlow Reservation & Booking Engine Integration Tests (Phase 2.5)'
     it('POST /api/bookings/:id/transition should transition status to CHECKED_IN', async () => {
       const res = await fetch(`${baseUrl}/api/bookings/${createdBookingId}/transition`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${facilityManagerToken}`,
+        },
         body: JSON.stringify({
           status: ReservationStatus.CHECKED_IN,
-          userId: sharedUser._id.toString(),
         }),
       });
 
@@ -749,9 +798,11 @@ describe('CampusFlow Reservation & Booking Engine Integration Tests (Phase 2.5)'
     it('POST /api/bookings/:id/cancel should cancel the reservation', async () => {
       const res = await fetch(`${baseUrl}/api/bookings/${createdBookingId}/cancel`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
         body: JSON.stringify({
-          userId: sharedUser._id.toString(),
           reason: 'Research experiment postponed',
         }),
       });

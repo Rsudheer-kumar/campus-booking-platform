@@ -24,6 +24,9 @@ export interface IUser {
   department?: string;
   identifier?: string;
   isActive: boolean;
+  passwordHash?: string;
+  tokenVersion?: number;
+  lastLoginAt?: Date;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -84,6 +87,20 @@ export const UserSchema = new Schema<IUser>(
       default: true,
       required: true,
       index: true,
+    },
+    passwordHash: {
+      type: String,
+      select: false,
+      required: false,
+    },
+    tokenVersion: {
+      type: Number,
+      default: 0,
+      required: true,
+    },
+    lastLoginAt: {
+      type: Date,
+      required: false,
     },
   },
   {

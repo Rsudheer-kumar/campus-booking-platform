@@ -14,6 +14,7 @@ import {
   Blackout,
   Reservation,
   ACTIVE_RESERVATION_STATES,
+  TimetableEntry,
 } from '../models';
 import { getZonedParts, zonedTimeToUtc, intervalsOverlap } from '../utils/timezone';
 import { timeStringToMinutes, isValidCalendarDate } from '../utils/dateValidation';
@@ -30,7 +31,8 @@ export type AvailabilityFailureReason =
   | 'ADVANCE_BOOKING_EXCEEDED'
   | 'OUTSIDE_OPERATING_HOURS'
   | 'BLACKOUT_CONFLICT'
-  | 'RESERVATION_CONFLICT';
+  | 'RESERVATION_CONFLICT'
+  | 'TIMETABLE_CONFLICT';
 
 export interface AvailabilityCheckResult {
   available: boolean;
@@ -265,6 +267,23 @@ export class AvailabilityService {
       };
     }
 
+    // 6.5 Timetable conflict check (hard availability constraint: half-open interval overlap)
+    // startAt < timetable.endAt && endAt > timetable.startAt
+    const timetableConflict = await TimetableEntry.findOne({
+      resource: resource._id,
+      isPublished: true,
+      startAt: { $lt: endAt },
+      endAt: { $gt: startAt },
+    }).session(session || null).lean();
+
+    if (timetableConflict) {
+      return {
+        available: false,
+        reason: 'TIMETABLE_CONFLICT',
+        message: 'The requested time slot conflicts with an academic timetable session',
+      };
+    }
+
     // 7. Existing active reservation conflict check (half-open interval overlap)
     // startAt < existing.endAt && endAt > existing.startAt
     const reservationQuery: Record<string, unknown> = {
@@ -347,11 +366,11 @@ export class AvailabilityService {
     const slotDuration = slotDurationMinutes || rule.bookingPolicy.minDurationMinutes || 60;
     const policy = rule.bookingPolicy;
 
-    // Fetch all active blackouts and existing reservations for this resource on this calendar day
+    // Fetch all active blackouts, existing reservations, and published timetable entries for this resource on this calendar day
     const dayStartUtc = zonedTimeToUtc(date, '00:00', rule.timezone);
     const dayEndUtc = zonedTimeToUtc(date, '24:00', rule.timezone);
 
-    const [blackouts, reservations] = await Promise.all([
+    const [blackouts, reservations, timetables] = await Promise.all([
       Blackout.find({
         resource: resource._id,
         isActive: true,
@@ -361,6 +380,12 @@ export class AvailabilityService {
       Reservation.find({
         resource: resource._id,
         status: { $in: ACTIVE_RESERVATION_STATES },
+        startAt: { $lt: dayEndUtc },
+        endAt: { $gt: dayStartUtc },
+      }).lean(),
+      TimetableEntry.find({
+        resource: resource._id,
+        isPublished: true,
         startAt: { $lt: dayEndUtc },
         endAt: { $gt: dayStartUtc },
       }).lean(),
@@ -427,6 +452,17 @@ export class AvailabilityService {
           if (hasReservation) {
             isAvailable = false;
             reason = 'RESERVATION_CONFLICT';
+          }
+        }
+
+        // Timetable conflict check
+        if (isAvailable) {
+          const hasTimetable = timetables.some((t) =>
+            intervalsOverlap(slotStartUtc, slotEndUtc, t.startAt, t.endAt)
+          );
+          if (hasTimetable) {
+            isAvailable = false;
+            reason = 'TIMETABLE_CONFLICT';
           }
         }
 

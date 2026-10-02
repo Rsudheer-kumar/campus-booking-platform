@@ -112,3 +112,11 @@ export {
   type ReservationStatusType,
   type ReservationDocument,
 } from './reservation.model';
+
+// Timetable Entry (Phase 3.1)
+export {
+  TimetableEntry,
+  TimetableEntrySchema,
+  type ITimetableEntry,
+  type TimetableEntryDocument,
+} from './timetableEntry.model';

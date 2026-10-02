@@ -35,6 +35,7 @@ export interface IResource {
   custodian?: Types.ObjectId;
   attributes: IResourceAttribute[];
   metadata?: Record<string, unknown>;
+  __v?: number;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -143,7 +144,7 @@ export const ResourceSchema = new Schema<IResource>(
   },
   {
     timestamps: true,
-    versionKey: false,
+    versionKey: '__v',
   }
 );
 
