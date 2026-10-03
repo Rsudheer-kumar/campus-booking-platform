@@ -125,3 +125,6 @@ export function validateRefreshRequest(token: string | undefined): ValidationRes
     data: { token },
   };
 }
+
+export * from './approvalPolicy.validator';
+export * from './booking.validator';

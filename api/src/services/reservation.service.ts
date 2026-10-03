@@ -9,17 +9,29 @@ import {
   Reservation,
   type IReservation,
   type ReservationDocument,
+  type IApprovalChainStepSnapshot,
   ReservationStatus,
   type ReservationStatusType,
   isValidReservationTransition,
   User,
+  type UserRoleType,
+  UserRole,
   Resource,
   ResourceStatus,
   isValidIanaTimezone,
+  ApproverRole,
+  type ApproverRoleType,
 } from '../models';
 import { AvailabilityService } from './availability.service';
 import { QuotaService } from './quota.service';
-import { BadRequestError, NotFoundError, ConflictError } from '../utils/errors';
+import { ApprovalPolicyService } from './approvalPolicy.service';
+import {
+  BadRequestError,
+  NotFoundError,
+  ConflictError,
+  ForbiddenError,
+  ValidationError,
+} from '../utils/errors';
 
 export interface CreateReservationParams {
   resourceId: string | Types.ObjectId;
@@ -167,16 +179,63 @@ export class ReservationService {
           );
         }
 
-        // Step E: Insert Reservation
+        // Step E: Authoritative Approval Policy Resolution within transaction
+        const policyResult = await ApprovalPolicyService.evaluatePolicyForBooking({
+          resourceId: resource._id,
+          resourceTypeId: resource.resourceType,
+          userRoles: user.roles,
+          session,
+        });
+
+        let initialStatus: ReservationStatusType = ReservationStatus.CONFIRMED;
+        let policyId: Types.ObjectId | null = null;
+        let currentStepOrder: number | null = null;
+        let currentApproverRole: ApproverRoleType | null = null;
+        let activeStepDeadline: Date | null = null;
+        let approvalChainSnapshot: IApprovalChainStepSnapshot[] = [];
+
+        if (policyResult.requiresApproval && policyResult.approvalChain && policyResult.approvalChain.length > 0) {
+          initialStatus = ReservationStatus.PENDING;
+          policyId = policyResult.policyId || null;
+          currentStepOrder = 1;
+          currentApproverRole = policyResult.approvalChain[0].approverRole;
+
+          const now = new Date();
+          const firstStepTimeout = policyResult.approvalChain[0].timeoutHours;
+          activeStepDeadline = firstStepTimeout
+            ? new Date(now.getTime() + firstStepTimeout * 3600000)
+            : null;
+
+          approvalChainSnapshot = policyResult.approvalChain.map((step, idx) => ({
+            stepOrder: step.stepOrder,
+            approverRole: step.approverRole,
+            timeoutHours: step.timeoutHours,
+            stepStartedAt: idx === 0 ? now : null,
+            stepDeadline: idx === 0 ? activeStepDeadline : null,
+            status: 'PENDING',
+            actionedBy: null,
+            actionedAt: null,
+            comment: null,
+            isOverride: false,
+            actorRoleUsed: null,
+          }));
+        }
+
+        // Step F: Insert Reservation
         const newReservation = new Reservation({
           resource: resource._id,
           user: user._id,
           startAt,
           endAt,
           timezone,
-          status: ReservationStatus.CONFIRMED,
+          status: initialStatus,
           title: title.trim(),
           description: description?.trim(),
+          policyId,
+          currentStepOrder,
+          currentApproverRole,
+          activeStepDeadline,
+          approvalChain: approvalChainSnapshot,
           metadata,
         });
 
@@ -227,9 +286,337 @@ export class ReservationService {
     if (reason) {
       reservation.cancellationReason = reason.trim();
     }
+    reservation.currentStepOrder = null;
+    reservation.currentApproverRole = null;
+    reservation.activeStepDeadline = null;
 
     await reservation.save();
     return reservation;
+  }
+
+  /**
+   * Phase 3.2: Approves the active step of a pending reservation.
+   * Executes atomic conditional update with predicate locking, Four-Eyes enforcement,
+   * and optional/mandatory comment handling.
+   */
+  public static async approveReservationStep(params: {
+    reservationId: string | Types.ObjectId;
+    user: { id: string; roles: UserRoleType[]; department?: string };
+    comment?: string;
+    expectedStepOrder?: number;
+  }): Promise<ReservationDocument> {
+    const { reservationId, user, comment, expectedStepOrder } = params;
+    const session = await mongoose.startSession();
+
+    try {
+      let committedDoc: ReservationDocument | null = null;
+
+      await session.withTransaction(async () => {
+        const reservation = await Reservation.findById(reservationId).session(session);
+        if (!reservation) {
+          throw new NotFoundError('Reservation not found');
+        }
+
+        if (reservation.status !== ReservationStatus.PENDING) {
+          throw new ConflictError(
+            `Cannot approve reservation with status "${reservation.status}". Reservation must be in PENDING state.`
+          );
+        }
+
+        const activeOrder = reservation.currentStepOrder;
+        if (!activeOrder) {
+          throw new ConflictError('Reservation does not have an active approval step');
+        }
+
+        if (expectedStepOrder !== undefined && expectedStepOrder !== activeOrder) {
+          throw new ConflictError(
+            `Active approval step order (${activeOrder}) does not match expected step order (${expectedStepOrder})`
+          );
+        }
+
+        const activeStepIndex = reservation.approvalChain.findIndex((s) => s.stepOrder === activeOrder);
+        if (activeStepIndex === -1) {
+          throw new ConflictError(`Active step order ${activeOrder} not found in approval chain`);
+        }
+
+        const activeStep = reservation.approvalChain[activeStepIndex];
+        if (activeStep.status !== 'PENDING') {
+          throw new ConflictError('Active approval step is not in PENDING state');
+        }
+
+        // 3. Absolute Separation of Duties (Four-Eyes Principle)
+        const priorApproverIds = reservation.approvalChain
+          .filter((s) => s.status === 'APPROVED' && s.actionedBy)
+          .map((s) => s.actionedBy!.toString());
+
+        if (priorApproverIds.includes(user.id.toString())) {
+          throw new ValidationError(
+            'Separation of duties violation: An actor who approved a prior step cannot approve subsequent steps on the same reservation.'
+          );
+        }
+
+        // 4. Role Authorization & Override Determination
+        const isAdmin = user.roles.includes(UserRole.ADMIN);
+        const holdsStepRole = user.roles.includes(activeStep.approverRole);
+
+        let isCrossDept = false;
+        if (activeStep.approverRole === ApproverRole.DEPARTMENT_HEAD) {
+          const requester = await User.findById(reservation.user).select('department').session(session).lean();
+          if (requester?.department !== user.department) {
+            isCrossDept = true;
+          }
+        }
+
+        let isOverride = false;
+        let actorRoleUsed: UserRoleType = activeStep.approverRole;
+
+        if (holdsStepRole && !isCrossDept) {
+          // Normal Domain Approval
+          isOverride = false;
+          actorRoleUsed = activeStep.approverRole;
+        } else if (isAdmin) {
+          // ADMIN Universal Override
+          isOverride = true;
+          actorRoleUsed = UserRole.ADMIN;
+
+          // Enforce mandatory comment for ADMIN override (min 5, max 500)
+          if (!comment || comment.trim().length < 5) {
+            throw new ValidationError(
+              'Administrative override requires a mandatory justification comment (minimum 5 characters).'
+            );
+          }
+        } else {
+          if (isCrossDept) {
+            throw new ForbiddenError(
+              'Department Heads can only approve reservations within their department'
+            );
+          }
+          throw new ForbiddenError(
+            `User lacks the required role (${activeStep.approverRole}) to approve this step`
+          );
+        }
+
+        // 5. Step Progression Math
+        const totalSteps = reservation.approvalChain.length;
+        const isFinalStep = activeOrder === totalSteps;
+        const now = new Date();
+
+        let nextStepOrder: number | null = null;
+        let nextApproverRole: ApproverRoleType | null = null;
+        let nextStepDeadline: Date | null = null;
+
+        if (!isFinalStep) {
+          nextStepOrder = activeOrder + 1;
+          const nextStepConfig = reservation.approvalChain.find((s) => s.stepOrder === nextStepOrder);
+          if (nextStepConfig) {
+            nextApproverRole = nextStepConfig.approverRole;
+            nextStepDeadline = nextStepConfig.timeoutHours
+              ? new Date(now.getTime() + nextStepConfig.timeoutHours * 3600000)
+              : null;
+          }
+        }
+
+        // 6. Predicate-Locked Atomic Update
+        const updateQuery: Record<string, unknown> = {
+          _id: reservation._id,
+          status: ReservationStatus.PENDING,
+          currentStepOrder: activeOrder,
+          ...(reservation.__v !== undefined ? { __v: reservation.__v } : {}),
+        };
+
+        const updateSet: Record<string, unknown> = {
+          [`approvalChain.${activeStepIndex}.status`]: 'APPROVED',
+          [`approvalChain.${activeStepIndex}.actionedBy`]: new Types.ObjectId(user.id),
+          [`approvalChain.${activeStepIndex}.actionedAt`]: now,
+          [`approvalChain.${activeStepIndex}.comment`]: comment?.trim() || null,
+          [`approvalChain.${activeStepIndex}.isOverride`]: isOverride,
+          [`approvalChain.${activeStepIndex}.actorRoleUsed`]: actorRoleUsed,
+        };
+
+        if (!isFinalStep && nextStepOrder) {
+          const nextIndex = activeStepIndex + 1;
+          updateSet[`approvalChain.${nextIndex}.stepStartedAt`] = now;
+          updateSet[`approvalChain.${nextIndex}.stepDeadline`] = nextStepDeadline;
+          updateSet.currentStepOrder = nextStepOrder;
+          updateSet.currentApproverRole = nextApproverRole;
+          updateSet.activeStepDeadline = nextStepDeadline;
+        } else {
+          // Final step -> CONFIRMED
+          updateSet.status = ReservationStatus.CONFIRMED;
+          updateSet.approvedBy = new Types.ObjectId(user.id);
+          updateSet.approvedAt = now;
+          updateSet.currentStepOrder = null;
+          updateSet.currentApproverRole = null;
+          updateSet.activeStepDeadline = null;
+        }
+
+        const updated = await Reservation.findOneAndUpdate(
+          updateQuery,
+          {
+            $set: updateSet,
+            $inc: { __v: 1 },
+          },
+          { session, returnDocument: 'after' }
+        );
+
+        if (!updated) {
+          throw new ConflictError(
+            'Reservation was concurrently modified or approved by another actor. Please refresh and try again.'
+          );
+        }
+
+        committedDoc = updated;
+      });
+
+      return committedDoc!;
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  /**
+   * Phase 3.2: Rejects a pending reservation, releasing slot capacity immediately.
+   */
+  public static async rejectReservationStep(params: {
+    reservationId: string | Types.ObjectId;
+    user: { id: string; roles: UserRoleType[]; department?: string };
+    reason: string;
+    expectedStepOrder?: number;
+  }): Promise<ReservationDocument> {
+    const { reservationId, user, reason, expectedStepOrder } = params;
+
+    if (!reason || typeof reason !== 'string' || reason.trim().length < 5 || reason.trim().length > 500) {
+      throw new ValidationError('Rejection reason must be between 5 and 500 characters');
+    }
+
+    const session = await mongoose.startSession();
+
+    try {
+      let committedDoc: ReservationDocument | null = null;
+
+      await session.withTransaction(async () => {
+        const reservation = await Reservation.findById(reservationId).session(session);
+        if (!reservation) {
+          throw new NotFoundError('Reservation not found');
+        }
+
+        if (reservation.status !== ReservationStatus.PENDING) {
+          throw new ConflictError(
+            `Cannot reject reservation with status "${reservation.status}". Reservation must be in PENDING state.`
+          );
+        }
+
+        const activeOrder = reservation.currentStepOrder;
+        if (!activeOrder) {
+          throw new ConflictError('Reservation does not have an active approval step');
+        }
+
+        if (expectedStepOrder !== undefined && expectedStepOrder !== activeOrder) {
+          throw new ConflictError(
+            `Active approval step order (${activeOrder}) does not match expected step order (${expectedStepOrder})`
+          );
+        }
+
+        const activeStepIndex = reservation.approvalChain.findIndex((s) => s.stepOrder === activeOrder);
+        if (activeStepIndex === -1) {
+          throw new ConflictError(`Active step order ${activeOrder} not found in approval chain`);
+        }
+
+        const activeStep = reservation.approvalChain[activeStepIndex];
+        if (activeStep.status !== 'PENDING') {
+          throw new ConflictError('Active approval step is not in PENDING state');
+        }
+
+        // Four-Eyes check: An actor who approved a prior step cannot reject later step
+        const priorApproverIds = reservation.approvalChain
+          .filter((s) => s.status === 'APPROVED' && s.actionedBy)
+          .map((s) => s.actionedBy!.toString());
+
+        if (priorApproverIds.includes(user.id.toString())) {
+          throw new ValidationError(
+            'Separation of duties violation: An actor who approved a prior step cannot action subsequent steps on the same reservation.'
+          );
+        }
+
+        // Role & Department Scoping
+        const isAdmin = user.roles.includes(UserRole.ADMIN);
+        const holdsStepRole = user.roles.includes(activeStep.approverRole);
+
+        let isCrossDept = false;
+        if (activeStep.approverRole === ApproverRole.DEPARTMENT_HEAD) {
+          const requester = await User.findById(reservation.user).select('department').session(session).lean();
+          if (requester?.department !== user.department) {
+            isCrossDept = true;
+          }
+        }
+
+        let isOverride = false;
+        let actorRoleUsed: UserRoleType = activeStep.approverRole;
+
+        if (holdsStepRole && !isCrossDept) {
+          isOverride = false;
+          actorRoleUsed = activeStep.approverRole;
+        } else if (isAdmin) {
+          isOverride = true;
+          actorRoleUsed = UserRole.ADMIN;
+        } else {
+          if (isCrossDept) {
+            throw new ForbiddenError(
+              'Department Heads can only reject reservations within their department'
+            );
+          }
+          throw new ForbiddenError(
+            `User lacks the required role (${activeStep.approverRole}) to reject this step`
+          );
+        }
+
+        const now = new Date();
+
+        const updateQuery: Record<string, unknown> = {
+          _id: reservation._id,
+          status: ReservationStatus.PENDING,
+          currentStepOrder: activeOrder,
+          ...(reservation.__v !== undefined ? { __v: reservation.__v } : {}),
+        };
+
+        const updateSet: Record<string, unknown> = {
+          [`approvalChain.${activeStepIndex}.status`]: 'REJECTED',
+          [`approvalChain.${activeStepIndex}.actionedBy`]: new Types.ObjectId(user.id),
+          [`approvalChain.${activeStepIndex}.actionedAt`]: now,
+          [`approvalChain.${activeStepIndex}.comment`]: reason.trim(),
+          [`approvalChain.${activeStepIndex}.isOverride`]: isOverride,
+          [`approvalChain.${activeStepIndex}.actorRoleUsed`]: actorRoleUsed,
+          status: ReservationStatus.REJECTED,
+          rejectedBy: new Types.ObjectId(user.id),
+          rejectedAt: now,
+          rejectionReason: reason.trim(),
+          currentStepOrder: null,
+          currentApproverRole: null,
+          activeStepDeadline: null,
+        };
+
+        const updated = await Reservation.findOneAndUpdate(
+          updateQuery,
+          {
+            $set: updateSet,
+            $inc: { __v: 1 },
+          },
+          { session, returnDocument: 'after' }
+        );
+
+        if (!updated) {
+          throw new ConflictError(
+            'Reservation was concurrently modified by another actor. Please refresh and try again.'
+          );
+        }
+
+        committedDoc = updated;
+      });
+
+      return committedDoc!;
+    } finally {
+      await session.endSession();
+    }
   }
 
   /**

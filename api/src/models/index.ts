@@ -109,9 +109,24 @@ export {
   VALID_STATUS_TRANSITIONS,
   isValidReservationTransition,
   type IReservation,
+  type IApprovalChainStepSnapshot,
   type ReservationStatusType,
   type ReservationDocument,
 } from './reservation.model';
+
+// Approval Policy (Phase 3.2)
+export {
+  ApprovalPolicy,
+  ApprovalPolicySchema,
+  ApprovalScopeType,
+  ApproverRole,
+  VALID_APPROVER_ROLES,
+  type IApprovalPolicy,
+  type IApprovalChainStepConfig,
+  type ApprovalScopeTypeValue,
+  type ApproverRoleType,
+  type ApprovalPolicyDocument,
+} from './approvalPolicy.model';
 
 // Timetable Entry (Phase 3.1)
 export {

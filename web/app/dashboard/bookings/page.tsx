@@ -118,10 +118,10 @@ export default function BookingsPage() {
                 : "bg-surface text-muted hover:text-foreground border border-border"
             )}
           >
-            Active & Confirmed (
+            Active &amp; Pending (
             {
               bookings.filter(
-                (b) => b.status === "CONFIRMED" || b.status === "PENDING"
+                (b) => b.status === "CONFIRMED" || b.status === "PENDING" || b.status === "CHECKED_IN"
               ).length
             }
             )
@@ -136,7 +136,7 @@ export default function BookingsPage() {
                 : "bg-surface text-muted hover:text-foreground border border-border"
             )}
           >
-            Cancelled ({bookings.filter((b) => b.status === "CANCELLED").length})
+            Cancelled &amp; Rejected ({bookings.filter((b) => b.status === "CANCELLED" || b.status === "REJECTED").length})
           </button>
         </div>
 
@@ -204,7 +204,7 @@ export default function BookingsPage() {
                 >
                   <div className="space-y-2">
                     {/* Status Badge & Code */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono text-xs font-bold text-primary-bright px-2 py-0.5 rounded bg-primary/10 border border-primary/20">
                         {resCode}
                       </span>
@@ -212,14 +212,22 @@ export default function BookingsPage() {
                         variant={
                           booking.status === "CONFIRMED"
                             ? "available"
-                            : booking.status === "CANCELLED"
+                            : booking.status === "CANCELLED" || booking.status === "REJECTED"
                             ? "cancelled"
                             : "warning"
                         }
                         dot
                       >
-                        {booking.status}
+                        {booking.status === "PENDING" && booking.currentStepOrder && booking.approvalChain?.length
+                          ? `PENDING (Step ${booking.currentStepOrder}/${booking.approvalChain.length}: ${booking.currentApproverRole || "APPROVAL"})`
+                          : booking.status}
                       </Badge>
+                      {booking.status === "PENDING" && booking.activeStepDeadline && (
+                        <span className="text-[11px] text-warning flex items-center gap-1 font-mono">
+                          <Clock className="h-3 w-3" />
+                          Due: {new Date(booking.activeStepDeadline).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
                       <span className="text-xs text-muted">ID: {booking._id.slice(-6)}</span>
                     </div>
 
@@ -234,6 +242,40 @@ export default function BookingsPage() {
                         </p>
                       )}
                     </div>
+
+                    {/* Multi-step Approval Chain Visualization */}
+                    {booking.approvalChain && booking.approvalChain.length > 0 && (
+                      <div className="p-2.5 rounded bg-surface-2/60 border border-border/50 text-xs space-y-1.5 my-1">
+                        <div className="font-semibold text-[11px] text-muted uppercase tracking-wider">
+                          Approval Workflow ({booking.approvalChain.length} {booking.approvalChain.length === 1 ? 'Step' : 'Steps'})
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {booking.approvalChain.map((step, idx) => (
+                            <div
+                              key={idx}
+                              className={cn(
+                                "flex items-center gap-1.5 px-2 py-1 rounded text-xs border",
+                                step.status === "APPROVED"
+                                  ? "bg-success/10 border-success/30 text-success"
+                                  : step.status === "REJECTED"
+                                  ? "bg-danger/10 border-danger/30 text-danger"
+                                  : step.stepOrder === booking.currentStepOrder
+                                  ? "bg-warning/10 border-warning/30 text-warning font-semibold animate-pulse"
+                                  : "bg-surface-2 border-border/40 text-muted"
+                              )}
+                            >
+                              <span className="font-mono">#{step.stepOrder}</span>
+                              <span>{step.approverRole}</span>
+                              <span>•</span>
+                              <span>{step.status}</span>
+                              {step.comment && (
+                                <span className="text-[11px] opacity-80">({step.comment})</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Facility & Date Info */}
                     <div className="flex flex-wrap items-center gap-4 text-xs text-muted pt-1">

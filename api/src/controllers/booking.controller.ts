@@ -249,3 +249,53 @@ export async function calculateSlots(req: Request, res: Response, next: NextFunc
     next(error);
   }
 }
+
+export async function approveBooking(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (!req.user) {
+      return next(new ForbiddenError('Unauthorized'));
+    }
+
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { comment } = req.body;
+
+    const result = await ReservationService.approveReservationStep({
+      reservationId: id,
+      user: {
+        id: req.user.id,
+        roles: req.user.roles,
+        department: req.user.department,
+      },
+      comment,
+    });
+
+    sendSuccess(res, result, 200);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function rejectBooking(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (!req.user) {
+      return next(new ForbiddenError('Unauthorized'));
+    }
+
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { reason } = req.body;
+
+    const result = await ReservationService.rejectReservationStep({
+      reservationId: id,
+      user: {
+        id: req.user.id,
+        roles: req.user.roles,
+        department: req.user.department,
+      },
+      reason,
+    });
+
+    sendSuccess(res, result, 200);
+  } catch (error) {
+    next(error);
+  }
+}

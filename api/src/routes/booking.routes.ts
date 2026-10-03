@@ -15,6 +15,8 @@ import {
   transitionBookingStatus,
   checkAvailability,
   calculateSlots,
+  approveBooking,
+  rejectBooking,
 } from '../controllers/booking.controller';
 import { authenticate, requireRoles } from '../middleware/auth';
 import { validateRequest } from '../middleware/validate';
@@ -25,6 +27,8 @@ import {
   validateTransitionBookingStatusBody,
   validateCheckAvailabilityQuery,
   validateCalculateSlotsQuery,
+  validateApproveBookingBody,
+  validateRejectBookingBody,
 } from '../validators/booking.validator';
 import { UserRole } from '../models/user.model';
 
@@ -74,6 +78,28 @@ router.post(
     body: validateCancelBookingBody,
   }),
   cancelBooking
+);
+
+router.post(
+  '/:id/approve',
+  authenticate,
+  requireRoles(UserRole.DEPARTMENT_HEAD, UserRole.FACILITY_MANAGER, UserRole.ADMIN),
+  validateRequest({
+    params: validateMongoId('id'),
+    body: validateApproveBookingBody,
+  }),
+  approveBooking
+);
+
+router.post(
+  '/:id/reject',
+  authenticate,
+  requireRoles(UserRole.DEPARTMENT_HEAD, UserRole.FACILITY_MANAGER, UserRole.ADMIN),
+  validateRequest({
+    params: validateMongoId('id'),
+    body: validateRejectBookingBody,
+  }),
+  rejectBooking
 );
 
 router.post(

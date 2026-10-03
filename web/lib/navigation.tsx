@@ -37,7 +37,7 @@ export const mainNavItems: NavItemConfig[] = [
     label: "Approvals",
     href: "/dashboard/approvals",
     icon: <ClipboardList className="h-4 w-4" />,
-    badge: 3,
+    roles: ["ADMIN", "FACILITY_MANAGER", "DEPARTMENT_HEAD"],
   },
   {
     label: "Maintenance",

@@ -1,8 +1,11 @@
+"use client";
+
 import Link from "next/link";
 import { mainNavItems, bottomNavItems } from "@/lib/navigation";
 import { NavItem } from "./nav-item";
 import { MonitorDot } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
 
 export interface SidebarContentProps {
   onItemClick?: () => void;
@@ -10,6 +13,19 @@ export interface SidebarContentProps {
 }
 
 export function SidebarContent({ onItemClick, className }: SidebarContentProps) {
+  const { user } = useAuth();
+
+  const filterItems = (items: typeof mainNavItems) => {
+    return items.filter((item) => {
+      if (!item.roles || item.roles.length === 0) return true;
+      if (!user) return false;
+      return item.roles.some((role) => user.roles.includes(role as any));
+    });
+  };
+
+  const visibleMainItems = filterItems(mainNavItems);
+  const visibleBottomItems = filterItems(bottomNavItems);
+
   return (
     <div className={cn("flex h-full flex-col bg-[#0B1224]", className)}>
       {/* Brand Header */}
@@ -29,14 +45,14 @@ export function SidebarContent({ onItemClick, className }: SidebarContentProps) 
 
       {/* Main Nav */}
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-5" aria-label="Main Navigation">
-        {mainNavItems.map((item) => (
+        {visibleMainItems.map((item) => (
           <NavItem key={item.label} item={item} onClick={onItemClick} />
         ))}
       </nav>
 
       {/* Bottom Nav */}
       <div className="shrink-0 border-t border-border p-3 space-y-1" aria-label="Secondary Navigation">
-        {bottomNavItems.map((item) => (
+        {visibleBottomItems.map((item) => (
           <NavItem key={item.label} item={item} onClick={onItemClick} />
         ))}
       </div>

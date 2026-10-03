@@ -103,6 +103,20 @@ export type ReservationStatus =
   | "REJECTED"
   | "EXPIRED";
 
+export interface ApprovalChainStepSnapshot {
+  stepOrder: number;
+  approverRole: string;
+  timeoutHours?: number;
+  stepStartedAt?: string | null;
+  stepDeadline?: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  actionedBy?: string | { _id: string; name: string } | null;
+  actionedAt?: string | null;
+  comment?: string | null;
+  isOverride: boolean;
+  actorRoleUsed?: string | null;
+}
+
 export interface Reservation {
   _id: string;
   resource: Resource | string;
@@ -115,8 +129,71 @@ export interface Reservation {
   description?: string;
   cancellationReason?: string;
   cancelledAt?: string;
+  policyId?: string | null;
+  currentStepOrder?: number | null;
+  currentApproverRole?: string | null;
+  activeStepDeadline?: string | null;
+  approvalChain?: ApprovalChainStepSnapshot[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ApprovalChainStep {
+  stepOrder: number;
+  approverRole: "DEPARTMENT_HEAD" | "FACILITY_MANAGER" | "ADMIN";
+  timeoutHours?: number;
+}
+
+export interface ApprovalPolicy {
+  _id: string;
+  name: string;
+  description?: string;
+  scopeType: "RESOURCE" | "RESOURCE_TYPE";
+  resource?: Resource | string | null;
+  resourceType?: ResourceType | string | null;
+  requesterRole?: UserRole | null;
+  requiresApproval: boolean;
+  approvalChain: ApprovalChainStep[];
+  isActive: boolean;
+  isArchived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PendingApprovalQueueItem {
+  _id: string;
+  title: string;
+  description?: string;
+  startAt: string;
+  endAt: string;
+  timezone: string;
+  status: ReservationStatus;
+  currentStepOrder: number;
+  currentApproverRole: string;
+  activeStepDeadline: string | null;
+  totalSteps: number;
+  activeStep: {
+    stepOrder: number;
+    approverRole: string;
+    timeoutHours?: number;
+    stepStartedAt?: string | null;
+    stepDeadline?: string | null;
+  };
+  resource: {
+    _id: string;
+    name: string;
+    code: string;
+    capacity: number;
+    location: ResourceLocation;
+  };
+  user: {
+    _id: string;
+    name: string;
+    email: string;
+    department?: string;
+    identifier?: string;
+  };
+  createdAt: string;
 }
 
 export interface AvailabilitySlot {
@@ -398,6 +475,24 @@ export const api = {
       return { booking };
     },
 
+    approve: async (id: string, comment?: string): Promise<{ booking: Reservation }> => {
+      const res = await request<Reservation | { booking: Reservation }>(`/bookings/${id}/approve`, {
+        method: "POST",
+        body: JSON.stringify(comment ? { comment } : {}),
+      });
+      const booking = (res && "booking" in res && res.booking) ? res.booking : (res as Reservation);
+      return { booking };
+    },
+
+    reject: async (id: string, reason: string): Promise<{ booking: Reservation }> => {
+      const res = await request<Reservation | { booking: Reservation }>(`/bookings/${id}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      });
+      const booking = (res && "booking" in res && res.booking) ? res.booking : (res as Reservation);
+      return { booking };
+    },
+
     checkAvailability: async (params: {
       resourceId: string;
       startAt: string;
@@ -439,6 +534,103 @@ export const api = {
         timezone: string;
         slots: AvailabilitySlot[];
       }>(`/bookings/slots?${searchParams.toString()}`);
+    },
+  },
+
+  // Approvals Queue (Phase 3.2)
+  approvals: {
+    getPending: async (params: {
+      page?: number;
+      limit?: number;
+      sortBy?: "deadline_asc" | "created_asc" | "created_desc";
+    } = {}): Promise<{
+      items: PendingApprovalQueueItem[];
+      total: number;
+      page: number;
+      limit: number;
+      totalPages: number;
+    }> => {
+      const searchParams = new URLSearchParams();
+      if (params.page) searchParams.set("page", String(params.page));
+      if (params.limit) searchParams.set("limit", String(params.limit));
+      if (params.sortBy) searchParams.set("sortBy", params.sortBy);
+
+      const query = searchParams.toString();
+      return request<{
+        items: PendingApprovalQueueItem[];
+        total: number;
+        page: number;
+        limit: number;
+        totalPages: number;
+      }>(`/approvals/pending${query ? `?${query}` : ""}`);
+    },
+  },
+
+  // Approval Policy Administration (Phase 3.2)
+  approvalPolicies: {
+    list: async (params: {
+      scopeType?: string;
+      resourceId?: string;
+      resourceTypeId?: string;
+      requesterRole?: string;
+      isActive?: boolean;
+      page?: number;
+      limit?: number;
+    } = {}): Promise<{
+      policies: ApprovalPolicy[];
+      total: number;
+      page: number;
+      limit: number;
+      totalPages: number;
+    }> => {
+      const searchParams = new URLSearchParams();
+      if (params.scopeType) searchParams.set("scopeType", params.scopeType);
+      if (params.resourceId) searchParams.set("resourceId", params.resourceId);
+      if (params.resourceTypeId) searchParams.set("resourceTypeId", params.resourceTypeId);
+      if (params.requesterRole) searchParams.set("requesterRole", params.requesterRole);
+      if (params.isActive !== undefined) searchParams.set("isActive", String(params.isActive));
+      if (params.page) searchParams.set("page", String(params.page));
+      if (params.limit) searchParams.set("limit", String(params.limit));
+
+      const query = searchParams.toString();
+      return request<{
+        policies: ApprovalPolicy[];
+        total: number;
+        page: number;
+        limit: number;
+        totalPages: number;
+      }>(`/approval-policies${query ? `?${query}` : ""}`);
+    },
+
+    getById: async (id: string): Promise<ApprovalPolicy> => {
+      return request<ApprovalPolicy>(`/approval-policies/${id}`);
+    },
+
+    create: async (payload: Partial<ApprovalPolicy>): Promise<ApprovalPolicy> => {
+      return request<ApprovalPolicy>("/approval-policies", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+
+    update: async (id: string, payload: Partial<ApprovalPolicy>): Promise<ApprovalPolicy> => {
+      return request<ApprovalPolicy>(`/approval-policies/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+    },
+
+    toggleStatus: async (id: string, isActive: boolean): Promise<ApprovalPolicy> => {
+      return request<ApprovalPolicy>(`/approval-policies/${id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ isActive }),
+      });
+    },
+
+    archive: async (id: string): Promise<ApprovalPolicy> => {
+      return request<ApprovalPolicy>(`/approval-policies/${id}`, {
+        method: "DELETE",
+      });
     },
   },
 };

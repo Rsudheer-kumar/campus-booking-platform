@@ -282,3 +282,107 @@ export function validateCalculateSlotsQuery(data: unknown): ValidationResult<Cal
     },
   };
 }
+
+// ─── Phase 3.2 Approval Workflow Validators ─────────────────────────────────
+
+export interface ApproveBookingBodyInput {
+  comment?: string;
+}
+
+export function validateApproveBookingBody(data: unknown): ValidationResult<ApproveBookingBodyInput> {
+  const record = (data || {}) as Record<string, unknown>;
+  const errors: ValidationIssue[] = [];
+
+  let comment: string | undefined = undefined;
+  if (record.comment !== undefined && record.comment !== null) {
+    if (typeof record.comment !== 'string') {
+      errors.push({ field: 'comment', message: 'comment must be a string' });
+    } else {
+      comment = record.comment.trim();
+      if (comment.length > 500) {
+        errors.push({ field: 'comment', message: 'comment cannot exceed 500 characters' });
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    return { success: false, errors };
+  }
+
+  return {
+    success: true,
+    data: { comment },
+  };
+}
+
+export interface RejectBookingBodyInput {
+  reason: string;
+}
+
+export function validateRejectBookingBody(data: unknown): ValidationResult<RejectBookingBodyInput> {
+  const record = (data || {}) as Record<string, unknown>;
+  const errors: ValidationIssue[] = [];
+
+  if (!record.reason || typeof record.reason !== 'string') {
+    errors.push({ field: 'reason', message: 'Rejection reason is required and must be a string' });
+  } else {
+    const trimmed = record.reason.trim();
+    if (trimmed.length < 5 || trimmed.length > 500) {
+      errors.push({ field: 'reason', message: 'Rejection reason must be between 5 and 500 characters' });
+    }
+  }
+
+  if (errors.length > 0) {
+    return { success: false, errors };
+  }
+
+  return {
+    success: true,
+    data: { reason: (record.reason as string).trim() },
+  };
+}
+
+export interface PendingApprovalsQueryInput {
+  page?: number;
+  limit?: number;
+  sortBy?: 'deadline_asc' | 'created_asc' | 'created_desc';
+}
+
+export function validatePendingApprovalsQuery(data: unknown): ValidationResult<PendingApprovalsQueryInput> {
+  const record = (data || {}) as Record<string, unknown>;
+  const errors: ValidationIssue[] = [];
+  const result: PendingApprovalsQueryInput = {};
+
+  if (record.page !== undefined) {
+    const p = Number(record.page);
+    if (!Number.isInteger(p) || p < 1) {
+      errors.push({ field: 'page', message: 'page must be an integer >= 1' });
+    } else {
+      result.page = p;
+    }
+  }
+
+  if (record.limit !== undefined) {
+    const l = Number(record.limit);
+    if (!Number.isInteger(l) || l < 1 || l > 100) {
+      errors.push({ field: 'limit', message: 'limit must be an integer between 1 and 100' });
+    } else {
+      result.limit = l;
+    }
+  }
+
+  if (record.sortBy !== undefined) {
+    const allowed = ['deadline_asc', 'created_asc', 'created_desc'];
+    if (!allowed.includes(record.sortBy as string)) {
+      errors.push({ field: 'sortBy', message: `sortBy must be one of: ${allowed.join(', ')}` });
+    } else {
+      result.sortBy = record.sortBy as 'deadline_asc' | 'created_asc' | 'created_desc';
+    }
+  }
+
+  if (errors.length > 0) {
+    return { success: false, errors };
+  }
+
+  return { success: true, data: result };
+}

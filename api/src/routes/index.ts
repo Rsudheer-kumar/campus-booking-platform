@@ -10,6 +10,8 @@ import bookingRoutes from './booking.routes';
 import authRoutes from './auth.routes';
 import timetableRoutes from './timetable.routes';
 import resourceRoutes from './resource.routes';
+import approvalRoutes from './approval.routes';
+import approvalPolicyRoutes from './approvalPolicy.routes';
 
 const router = Router();
 
@@ -27,6 +29,12 @@ router.use('/bookings', bookingRoutes);
 
 // Timetable integration endpoints: /api/timetables (Phase 3.1)
 router.use('/timetables', timetableRoutes);
+
+// Approvals queue endpoints: /api/approvals (Phase 3.2)
+router.use('/approvals', approvalRoutes);
+
+// Approval policy administration endpoints: /api/approval-policies (Phase 3.2)
+router.use('/approval-policies', approvalPolicyRoutes);
 
 /**
  * Future API domain routes will be mounted here:

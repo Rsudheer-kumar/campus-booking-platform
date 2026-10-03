@@ -10,6 +10,8 @@
 
 import mongoose, { Schema, type Model, type HydratedDocument, type Types } from 'mongoose';
 import { isValidIanaTimezone } from './availabilityRule.model';
+import { type ApproverRoleType, VALID_APPROVER_ROLES } from './approvalPolicy.model';
+import { type UserRoleType } from './user.model';
 
 export const ReservationStatus = {
   PENDING: 'PENDING',
@@ -80,6 +82,20 @@ export function isValidReservationTransition(
   return allowed ? allowed.includes(nextStatus) : false;
 }
 
+export interface IApprovalChainStepSnapshot {
+  stepOrder: number;
+  approverRole: ApproverRoleType;
+  timeoutHours?: number;
+  stepStartedAt?: Date | null;
+  stepDeadline?: Date | null;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  actionedBy?: Types.ObjectId | null;
+  actionedAt?: Date | null;
+  comment?: string | null;
+  isOverride: boolean;
+  actorRoleUsed?: UserRoleType | null;
+}
+
 export interface IReservation {
   resource: Types.ObjectId;
   user: Types.ObjectId;
@@ -100,9 +116,16 @@ export interface IReservation {
   cancellationReason?: string;
   checkInAt?: Date;
   checkOutAt?: Date;
+  // Phase 3.2 Approval Workflow
+  policyId?: Types.ObjectId | null;
+  currentStepOrder?: number | null;
+  currentApproverRole?: ApproverRoleType | null;
+  activeStepDeadline?: Date | null;
+  approvalChain: IApprovalChainStepSnapshot[];
   metadata?: Record<string, unknown>;
   createdAt?: Date;
   updatedAt?: Date;
+  __v?: number;
 }
 
 export type ReservationDocument = HydratedDocument<IReservation>;
@@ -207,6 +230,62 @@ export const ReservationSchema = new Schema<IReservation>(
       type: Date,
       required: false,
     },
+    // Phase 3.2 Approval Workflow Fields
+    policyId: {
+      type: Schema.Types.ObjectId,
+      ref: 'ApprovalPolicy',
+      default: null,
+    },
+    currentStepOrder: {
+      type: Number,
+      default: null,
+    },
+    currentApproverRole: {
+      type: String,
+      enum: {
+        values: [...VALID_APPROVER_ROLES, null],
+        message: 'Invalid currentApproverRole: {VALUE}',
+      },
+      default: null,
+    },
+    activeStepDeadline: {
+      type: Date,
+      default: null,
+    },
+    approvalChain: {
+      type: [
+        new Schema<IApprovalChainStepSnapshot>(
+          {
+            stepOrder: { type: Number, required: true },
+            approverRole: {
+              type: String,
+              enum: VALID_APPROVER_ROLES,
+              required: true,
+            },
+            timeoutHours: { type: Number, required: false },
+            stepStartedAt: { type: Date, default: null },
+            stepDeadline: { type: Date, default: null },
+            status: {
+              type: String,
+              enum: ['PENDING', 'APPROVED', 'REJECTED'],
+              default: 'PENDING',
+              required: true,
+            },
+            actionedBy: {
+              type: Schema.Types.ObjectId,
+              ref: 'User',
+              default: null,
+            },
+            actionedAt: { type: Date, default: null },
+            comment: { type: String, trim: true, default: null },
+            isOverride: { type: Boolean, default: false },
+            actorRoleUsed: { type: String, default: null },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
     metadata: {
       type: Schema.Types.Mixed,
       required: false,
@@ -214,7 +293,7 @@ export const ReservationSchema = new Schema<IReservation>(
   },
   {
     timestamps: true,
-    versionKey: false,
+    versionKey: '__v',
   }
 );
 
@@ -256,6 +335,24 @@ ReservationSchema.index(
 ReservationSchema.index(
   { status: 1, startAt: 1 },
   { name: 'idx_status_start_asc' }
+);
+
+// 5. Phase 3.2 Approval queue role index
+ReservationSchema.index(
+  { status: 1, currentApproverRole: 1, currentStepOrder: 1 },
+  { name: 'idx_approvals_pending_role_queue' }
+);
+
+// 6. Phase 3.2 Active step deadline index
+ReservationSchema.index(
+  { status: 1, activeStepDeadline: 1 },
+  {
+    partialFilterExpression: {
+      status: ReservationStatus.PENDING,
+      activeStepDeadline: { $type: 'date' },
+    },
+    name: 'idx_reservations_active_step_deadline',
+  }
 );
 
 export const Reservation: Model<IReservation> =

@@ -5,7 +5,7 @@ import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, Clock, Calendar, CheckCircle2, Building2 } from "lucide-react";
+import { AlertCircle, Clock, Calendar, CheckCircle2, Building2, ShieldCheck } from "lucide-react";
 import { api, ApiError, type Resource, type Reservation } from "@/lib/api";
 
 interface BookingModalProps {
@@ -232,12 +232,20 @@ export function BookingModal({
             onChange={(e) => setDescription(e.target.value)}
           />
 
-          <div className="text-[11px] text-muted flex items-center gap-1.5 pt-0.5">
-            <Clock className="h-3.5 w-3.5 text-primary/70 shrink-0" />
-            <span>
-              Institutional timetable sessions are authoritative. Bookings conflicting with published
-              courses will be automatically rejected.
-            </span>
+          <div className="space-y-1.5 pt-0.5">
+            <div className="text-[11px] text-muted flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 text-primary/70 shrink-0" />
+              <span>
+                Institutional timetable sessions are authoritative. Bookings conflicting with published
+                courses will be automatically rejected.
+              </span>
+            </div>
+            <div className="text-[11px] text-muted flex items-center gap-1.5">
+              <ShieldCheck className="h-3.5 w-3.5 text-success/70 shrink-0" />
+              <span>
+                Approval Policy &amp; Slot Hold: If approval is required, your reservation enters PENDING state while holding this slot against competing bookings.
+              </span>
+            </div>
           </div>
         </div>
 
