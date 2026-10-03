@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, Suspense } from "react";
+import { useState, useEffect, useCallback, useMemo, Suspense, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   Calendar as CalendarIcon,
@@ -48,15 +48,21 @@ function CalendarView() {
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [modalSlot, setModalSlot] = useState<{ start: string; end: string } | null>(null);
 
-  // 1. Fetch Resources on mount
+  // 1. Fetch Resources — runs ONCE on mount only.
+  // We read the initial URL resourceId here and never re-run when searchParams
+  // changes (e.g. after handleResourceChange calls router.replace), which would
+  // create an infinite fetch loop.
+  const initialResourceIdRef = useRef<string | null>(null);
   useEffect(() => {
+    // Capture the URL param at the time the component first mounts
+    initialResourceIdRef.current = searchParams.get("resourceId");
+
     async function loadResources() {
       try {
         const res = await api.resources.list({ limit: 50 });
         setResources(res.resources);
 
-        // Check if resourceId passed in URL
-        const queryResId = searchParams.get("resourceId");
+        const queryResId = initialResourceIdRef.current;
         if (queryResId && res.resources.some((r) => r._id === queryResId)) {
           setSelectedResourceId(queryResId);
         } else if (res.resources.length > 0) {
@@ -67,7 +73,8 @@ function CalendarView() {
       }
     }
     loadResources();
-  }, [searchParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally empty — mount-only
 
   // Sync selected resource with URL
   const handleResourceChange = (resId: string) => {
@@ -106,18 +113,22 @@ function CalendarView() {
 
     setIsLoading(true);
     try {
-      const startDate = weekDays[0].toISOString();
-      const endDate = new Date(weekDays[6].getTime() + 86400000 - 1).toISOString();
+      // Full ISO range for the visible week window
+      const startAt = weekDays[0].toISOString();
+      // End of the last visible day (Sunday 23:59:59.999 UTC)
+      const endAt = new Date(weekDays[6].getTime() + 86400000 - 1).toISOString();
 
       const [ttRes, bkRes] = await Promise.all([
         api.timetables.list({
           resourceId: selectedResourceId,
-          startDate,
-          endDate,
+          startAt,
+          endAt,
           limit: 100,
         }),
         api.bookings.list({
           resourceId: selectedResourceId,
+          startAt,
+          endAt,
           limit: 100,
         }),
       ]);
@@ -187,6 +198,47 @@ function CalendarView() {
     const options: Intl.DateTimeFormatOptions = { month: "short", year: "numeric", timeZone: "UTC" };
     return new Intl.DateTimeFormat("en-US", options).format(selectedDate);
   }, [selectedDate]);
+
+  /**
+   * Pre-index schedule entries by an ISO slot key "YYYY-MM-DDTHH" (UTC) to
+   * enable O(1) lookups during the calendar grid render instead of an O(N)
+   * linear scan per cell.  Timetable entries win over bookings when they
+   * overlap the same cell (institutional calendar has priority).
+   */
+  const scheduleIndex = useMemo(() => {
+    const ttMap = new Map<string, TimetableEntry>();
+    const bkMap = new Map<string, Reservation>();
+
+    for (const tt of timetables) {
+      const s = new Date(tt.startAt);
+      const e = new Date(tt.endAt);
+      // Mark every UTC whole-hour slot that overlaps this entry
+      for (let h = s.getUTCHours(); ; h++) {
+        const slotStart = new Date(s);
+        slotStart.setUTCHours(h, 0, 0, 0);
+        if (slotStart >= e) break;
+        const key = slotStart.toISOString().slice(0, 13); // "YYYY-MM-DDTHH"
+        ttMap.set(key, tt);
+      }
+    }
+
+    for (const bk of bookings) {
+      const s = new Date(bk.startAt);
+      const e = new Date(bk.endAt);
+      for (let h = s.getUTCHours(); ; h++) {
+        const slotStart = new Date(s);
+        slotStart.setUTCHours(h, 0, 0, 0);
+        if (slotStart >= e) break;
+        const key = slotStart.toISOString().slice(0, 13);
+        if (!ttMap.has(key)) {
+          // Only store booking entry if no timetable entry occupies that slot
+          bkMap.set(key, bk);
+        }
+      }
+    }
+
+    return { ttMap, bkMap };
+  }, [timetables, bookings]);
 
   return (
     <div className="min-h-full py-8 grid-background">
@@ -397,22 +449,11 @@ function CalendarView() {
                         {weekDays.map((dayDate, dayIdx) => {
                           const cellStartUtc = new Date(dayDate);
                           cellStartUtc.setUTCHours(hour, 0, 0, 0);
-                          const cellEndUtc = new Date(dayDate);
-                          cellEndUtc.setUTCHours(hour + 1, 0, 0, 0);
 
-                          // Find matching Timetable Session
-                          const matchingTt = timetables.find((tt) => {
-                            const ttStart = new Date(tt.startAt);
-                            const ttEnd = new Date(tt.endAt);
-                            return cellStartUtc < ttEnd && cellEndUtc > ttStart;
-                          });
-
-                          // Find matching User Reservation
-                          const matchingBk = bookings.find((bk) => {
-                            const bkStart = new Date(bk.startAt);
-                            const bkEnd = new Date(bk.endAt);
-                            return cellStartUtc < bkEnd && cellEndUtc > bkStart;
-                          });
+                          // O(1) pre-indexed lookups instead of O(N) linear scans
+                          const slotKey = cellStartUtc.toISOString().slice(0, 13);
+                          const matchingTt = scheduleIndex.ttMap.get(slotKey) ?? null;
+                          const matchingBk = scheduleIndex.bkMap.get(slotKey) ?? null;
 
                           return (
                             <div
@@ -506,20 +547,11 @@ function CalendarView() {
                 {hours.map((hour) => {
                   const cellStartUtc = new Date(selectedDate);
                   cellStartUtc.setUTCHours(hour, 0, 0, 0);
-                  const cellEndUtc = new Date(selectedDate);
-                  cellEndUtc.setUTCHours(hour + 1, 0, 0, 0);
 
-                  const matchingTt = timetables.find((tt) => {
-                    const ttStart = new Date(tt.startAt);
-                    const ttEnd = new Date(tt.endAt);
-                    return cellStartUtc < ttEnd && cellEndUtc > ttStart;
-                  });
-
-                  const matchingBk = bookings.find((bk) => {
-                    const bkStart = new Date(bk.startAt);
-                    const bkEnd = new Date(bk.endAt);
-                    return cellStartUtc < bkEnd && cellEndUtc > bkStart;
-                  });
+                  // O(1) pre-indexed lookups
+                  const slotKey = cellStartUtc.toISOString().slice(0, 13);
+                  const matchingTt = scheduleIndex.ttMap.get(slotKey) ?? null;
+                  const matchingBk = scheduleIndex.bkMap.get(slotKey) ?? null;
 
                   return (
                     <div

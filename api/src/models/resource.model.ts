@@ -6,6 +6,8 @@
 
 import mongoose, { Schema, type Model, type HydratedDocument, type Types } from 'mongoose';
 import { ResourceAttributeSchema, type IResourceAttribute } from './resourceAttribute.model';
+import './resourceType.model';
+import './custodian.model';
 
 export const ResourceStatus = {
   ACTIVE: 'ACTIVE',

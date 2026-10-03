@@ -4,7 +4,7 @@
  */
 
 import type { Request, Response } from 'express';
-import { Resource } from '../models/resource.model';
+import { Resource, ResourceType } from '../models';
 import { sendSuccess, sendError } from '../utils/response';
 import type { ResourceQueryFilter } from '../validators/resource.validator';
 import { logger } from '../utils/logger';

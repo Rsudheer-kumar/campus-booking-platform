@@ -385,7 +385,13 @@ export const api = {
     list: async (params: {
       resourceId?: string;
       academicTerm?: string;
+      /** ISO 8601 — maps to backend `startAt` overlap filter */
+      startAt?: string;
+      /** ISO 8601 — maps to backend `endAt` overlap filter */
+      endAt?: string;
+      /** @deprecated use startAt instead */
       startDate?: string;
+      /** @deprecated use endAt instead */
       endDate?: string;
       page?: number;
       limit?: number;
@@ -393,8 +399,11 @@ export const api = {
       const searchParams = new URLSearchParams();
       if (params.resourceId) searchParams.set("resourceId", params.resourceId);
       if (params.academicTerm) searchParams.set("academicTerm", params.academicTerm);
-      if (params.startDate) searchParams.set("startDate", params.startDate);
-      if (params.endDate) searchParams.set("endDate", params.endDate);
+      // Prefer explicit startAt/endAt; fall back to legacy startDate/endDate aliases
+      const sa = params.startAt ?? params.startDate;
+      const ea = params.endAt ?? params.endDate;
+      if (sa) searchParams.set("startAt", sa);
+      if (ea) searchParams.set("endAt", ea);
       if (params.page) searchParams.set("page", String(params.page));
       if (params.limit) searchParams.set("limit", String(params.limit));
 
@@ -410,6 +419,10 @@ export const api = {
     list: async (params: {
       status?: string;
       resourceId?: string;
+      /** ISO 8601 — overlap filter: only bookings that end after this time */
+      startAt?: string;
+      /** ISO 8601 — overlap filter: only bookings that start before this time */
+      endAt?: string;
       page?: number;
       limit?: number;
     } = {}): Promise<{
@@ -423,6 +436,8 @@ export const api = {
       const searchParams = new URLSearchParams();
       if (params.status) searchParams.set("status", params.status);
       if (params.resourceId) searchParams.set("resourceId", params.resourceId);
+      if (params.startAt) searchParams.set("startAt", params.startAt);
+      if (params.endAt) searchParams.set("endAt", params.endAt);
       if (params.page) searchParams.set("page", String(params.page));
       if (params.limit) searchParams.set("limit", String(params.limit));
 

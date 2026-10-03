@@ -2,12 +2,41 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Plus, ArrowRight, LayoutDashboard, CalendarDays } from "lucide-react";
+import dynamic from "next/dynamic";
+import { Plus, ArrowRight, LayoutDashboard, CalendarDays, MapPin } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { PageContainer, PageHeader } from "@/components/layout";
 import { Card, Badge, Button } from "@/components/ui";
-import { CampusScene } from "@/components/3d";
+import type { CampusSceneProps } from "@/components/3d/campus-scene";
+
+/**
+ * Dynamically import the Three.js / WebGL scene so it is code-split into its
+ * own chunk and never blocks initial dashboard hydration.  The heavy Three.js,
+ * @react-three/fiber, and @react-three/drei packages are only fetched once the
+ * browser is ready to paint the interactive canvas.
+ */
+const CampusScene = dynamic<CampusSceneProps>(
+  () =>
+    import("@/components/3d/campus-scene").then((mod) => ({
+      default: mod.CampusScene,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-[#050816]">
+        <div className="relative h-12 w-12">
+          <div className="absolute inset-0 rounded-full border-2 border-primary/30 animate-pulse" />
+          <div className="absolute inset-2 rounded-full border-2 border-t-primary border-r-transparent border-b-transparent border-l-transparent animate-spin" />
+          <MapPin className="absolute inset-0 m-auto h-4 w-4 text-primary/70" />
+        </div>
+        <p className="text-xs text-muted/60 font-mono tracking-wider">
+          Initialising Campus Digital Twin…
+        </p>
+      </div>
+    ),
+  }
+);
 
 export default function DashboardPage() {
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(

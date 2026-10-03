@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import {
   Database,
@@ -12,6 +12,8 @@ import {
   Filter,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 
 import { PageContainer, PageHeader } from "@/components/layout";
@@ -21,23 +23,32 @@ import { api, type Resource } from "@/lib/api";
 export default function ResourcesPage() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [selectedBuilding, setSelectedBuilding] = useState<string>("ALL");
 
-  useEffect(() => {
-    async function fetchResources() {
-      setIsLoading(true);
-      try {
-        const res = await api.resources.list({ limit: 100 });
-        setResources(res.resources || []);
-      } catch (err) {
-        console.error("Failed to fetch resources", err);
-      } finally {
-        setIsLoading(false);
-      }
+  const fetchResources = useCallback(async () => {
+    setIsLoading(true);
+    setFetchError(null);
+    try {
+      const res = await api.resources.list({ limit: 100 });
+      setResources(res.resources || []);
+    } catch (err: unknown) {
+      console.error("Failed to fetch resources", err);
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Unable to load campus resources. Please try again.";
+      setFetchError(message);
+      setResources([]);
+    } finally {
+      setIsLoading(false);
     }
-    fetchResources();
   }, []);
+
+  useEffect(() => {
+    fetchResources();
+  }, [fetchResources]);
 
   // Compute unique buildings for filter tabs
   const buildings = useMemo(() => {
@@ -136,12 +147,44 @@ export default function ResourcesPage() {
               </Card>
             ))}
           </div>
+        ) : fetchError ? (
+          <Card className="min-h-[350px] flex items-center justify-center border-destructive/40 bg-destructive/5">
+            <div className="flex flex-col items-center gap-4 text-center p-8 max-w-md">
+              <div className="h-14 w-14 rounded-full bg-destructive/10 flex items-center justify-center border border-destructive/30">
+                <AlertTriangle className="h-7 w-7 text-destructive" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-foreground mb-1">
+                  Failed to Load Resources
+                </h3>
+                <p className="text-sm text-muted leading-relaxed">
+                  {fetchError}
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<RefreshCw className="h-4 w-4" />}
+                onClick={fetchResources}
+              >
+                Retry
+              </Button>
+            </div>
+          </Card>
         ) : filteredResources.length === 0 ? (
           <Card className="min-h-[350px] flex items-center justify-center">
             <EmptyState
               icon={<Database className="h-8 w-8 text-primary" />}
-              title="No Matching Facilities"
-              description="No campus resources matched your current search filters. Try clearing your query."
+              title={
+                resources.length === 0
+                  ? "No Facilities Available"
+                  : "No Matching Facilities"
+              }
+              description={
+                resources.length === 0
+                  ? "No campus resources have been configured yet. Contact your administrator."
+                  : "No campus resources matched your current search filters. Try clearing your query."
+              }
             />
           </Card>
         ) : (
