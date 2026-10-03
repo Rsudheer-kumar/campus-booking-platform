@@ -16,6 +16,7 @@ import {
   ResourceStatus,
   AvailabilityRule,
   DayOfWeek,
+  type DayOfWeekType,
   TimetableEntry,
   Reservation,
   ReservationStatus,
@@ -80,25 +81,25 @@ async function seedDatabase(): Promise<void> {
       {
         name: 'Lecture Hall',
         code: 'LH',
-        category: ResourceCategory.ROOM,
+        category: ResourceCategory.CLASSROOM,
         description: 'Large tiered lecture theaters equipped with AV and projector systems.',
       },
       {
         name: 'Computer Laboratory',
         code: 'LAB',
-        category: ResourceCategory.ROOM,
+        category: ResourceCategory.LABORATORY,
         description: 'Specialized computing laboratories with high-performance workstations.',
       },
       {
         name: 'Seminar Room',
         code: 'SEM',
-        category: ResourceCategory.ROOM,
+        category: ResourceCategory.MEETING_ROOM,
         description: 'Collaborative meeting and presentation rooms for interactive groups.',
       },
       {
         name: 'Auditorium',
         code: 'AUD',
-        category: ResourceCategory.ROOM,
+        category: ResourceCategory.AUDITORIUM,
         description: 'Grand campus hall for university symposia and academic conferences.',
       },
     ];

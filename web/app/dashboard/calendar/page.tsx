@@ -549,7 +549,7 @@ function CalendarView() {
                               </Badge>
                             </div>
                             <p className="text-xs text-muted mt-0.5">
-                              Instructor: {matchingTt.courseTitle || "Faculty"} • Non-bookable institutional session
+                              Instructor: {matchingTt.instructorName || "Faculty"} • Non-bookable institutional session
                             </p>
                           </div>
                         )}

@@ -337,6 +337,7 @@ export const api = {
       limit?: number;
     } = {}): Promise<{
       bookings: Reservation[];
+      items: Reservation[];
       total: number;
       page: number;
       limit: number;
@@ -349,13 +350,23 @@ export const api = {
       if (params.limit) searchParams.set("limit", String(params.limit));
 
       const query = searchParams.toString();
-      return request<{
-        bookings: Reservation[];
+      const raw = await request<{
+        bookings?: Reservation[];
+        items?: Reservation[];
         total: number;
         page: number;
         limit: number;
         totalPages: number;
       }>(`/bookings${query ? `?${query}` : ""}`);
+      const list = raw?.bookings || raw?.items || [];
+      return {
+        bookings: list,
+        items: list,
+        total: raw?.total ?? list.length,
+        page: raw?.page ?? 1,
+        limit: raw?.limit ?? 50,
+        totalPages: raw?.totalPages ?? 1,
+      };
     },
 
     getById: async (id: string): Promise<Reservation> => {
@@ -370,17 +381,21 @@ export const api = {
       endAt: string;
       timezone: string;
     }): Promise<{ booking: Reservation }> => {
-      return request<{ booking: Reservation }>("/bookings", {
+      const res = await request<Reservation | { booking: Reservation }>("/bookings", {
         method: "POST",
         body: JSON.stringify(payload),
       });
+      const booking = (res && "booking" in res && res.booking) ? res.booking : (res as Reservation);
+      return { booking };
     },
 
     cancel: async (id: string, reason?: string): Promise<{ booking: Reservation }> => {
-      return request<{ booking: Reservation }>(`/bookings/${id}/cancel`, {
+      const res = await request<Reservation | { booking: Reservation }>(`/bookings/${id}/cancel`, {
         method: "POST",
         body: JSON.stringify(reason ? { reason } : {}),
       });
+      const booking = (res && "booking" in res && res.booking) ? res.booking : (res as Reservation);
+      return { booking };
     },
 
     checkAvailability: async (params: {

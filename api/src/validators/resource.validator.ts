@@ -23,7 +23,7 @@ export function validateResourceQuery(data: unknown): ValidationResult<ResourceQ
   const errors = [];
 
   const paginationResult = validatePaginationQuery(data);
-  if (!paginationResult.success) {
+  if (!paginationResult.success || !paginationResult.data) {
     return paginationResult as ValidationResult<ResourceQueryFilter>;
   }
 
