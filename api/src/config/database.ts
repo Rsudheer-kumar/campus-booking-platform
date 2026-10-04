@@ -10,6 +10,7 @@ import { logger } from '../utils/logger';
 // Global Mongoose Configuration
 mongoose.set('strict', true);
 mongoose.set('strictQuery', true);
+mongoose.set('bufferCommands', false);
 
 let isConnecting = false;
 let lastConnectionError: string | null = null;
@@ -48,22 +49,84 @@ export async function connectDatabase(uriOverride?: string): Promise<typeof mong
     connectTimeoutMS: 10000,
     socketTimeoutMS: 45000,
     autoIndex: !env.isProduction,
+    bufferCommands: false,
   };
 
   try {
     logger.info('Connecting to MongoDB...', { uri: redactMongoUri(targetUri) });
 
     const connection = await mongoose.connect(targetUri, options);
+
+    // Verify connection responsiveness and writable primary status
+    await verifyDatabaseReadiness(mongoose);
+
     lastConnectionError = null;
-    logger.info('MongoDB connected successfully');
+    logger.info('MongoDB connected successfully and verified writable primary');
     return connection;
   } catch (error) {
     lastConnectionError = error instanceof Error ? error.message : String(error);
     logger.error('Failed to connect to MongoDB', lastConnectionError);
+    if (mongoose.connection.readyState !== 0) {
+      try {
+        await mongoose.disconnect();
+      } catch {
+        // Suppress secondary disconnect errors during connection failure cleanup
+      }
+    }
     throw error;
   } finally {
     isConnecting = false;
   }
+}
+
+export interface DatabaseReadiness {
+  ok: boolean;
+  isWritablePrimary: boolean;
+  setName: string | null;
+  databaseName: string;
+}
+
+/**
+ * Validates that MongoDB is connected, responsive to ping, and operating as a writable primary.
+ * Verifies replica set topology (rs0) required for transactions.
+ */
+export async function verifyDatabaseReadiness(
+  instance: typeof mongoose = mongoose
+): Promise<DatabaseReadiness> {
+  if (instance.connection.readyState !== 1) {
+    throw new Error('MongoDB connection is not established (readyState !== 1)');
+  }
+
+  const db = instance.connection.db;
+  if (!db) {
+    throw new Error('MongoDB database instance is not available on active connection');
+  }
+
+  // 1. Verify reachability via ping
+  await db.command({ ping: 1 });
+
+  // 2. Verify writable primary status via hello command
+  const helloResult = (await db.command({ hello: 1 })) as {
+    isWritablePrimary?: boolean;
+    ismaster?: boolean;
+    setName?: string;
+    hosts?: string[];
+    readOnly?: boolean;
+  };
+
+  const isWritable = Boolean(helloResult.isWritablePrimary ?? helloResult.ismaster);
+  if (!isWritable) {
+    throw new Error(
+      `MongoDB connected but node is not a writable primary (isWritablePrimary: false, setName: ${helloResult.setName || 'standalone'})`
+    );
+  }
+
+  return {
+    ok: true,
+    isWritablePrimary: isWritable,
+    setName: helloResult.setName ?? null,
+    databaseName: db.databaseName,
+  };
 }
 
 /**
@@ -118,6 +181,11 @@ export function getLastDatabaseError(): string | null {
 mongoose.connection.on('connected', () => {
   lastConnectionError = null;
   logger.info('MongoDB connection established');
+});
+
+mongoose.connection.on('reconnected', () => {
+  lastConnectionError = null;
+  logger.info('MongoDB connection re-established');
 });
 
 mongoose.connection.on('error', (err: Error) => {

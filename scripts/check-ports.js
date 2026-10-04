@@ -6,12 +6,89 @@
  */
 
 const { execSync } = require('child_process');
+const fs = require('fs');
 const net = require('net');
+const path = require('path');
 
 const PORTS_TO_CHECK = [
   { port: 5000, name: 'CampusFlow API' },
   { port: 3000, name: 'CampusFlow Web' },
 ];
+
+function getMongoConfig() {
+  let uri = process.env.MONGODB_URI;
+  if (!uri) {
+    try {
+      const envPath = path.resolve(__dirname, '../api/.env');
+      if (fs.existsSync(envPath)) {
+        const content = fs.readFileSync(envPath, 'utf8');
+        const match = content.match(/^MONGODB_URI=(.+)$/m);
+        if (match) {
+          uri = match[1].trim();
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  uri = uri || 'mongodb://localhost:27017/campusflow';
+
+  try {
+    const match = uri.match(/^mongodb(?:\+srv)?:\/\/(?:[^@]+@)?([^:/]+)(?::(\d+))?/);
+    if (match) {
+      return {
+        host: match[1] || 'localhost',
+        port: match[2] ? parseInt(match[2], 10) : 27017,
+      };
+    }
+  } catch {
+    // ignore
+  }
+
+  return { host: 'localhost', port: 27017 };
+}
+
+function checkTcpConnect(host, port, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let responded = false;
+
+    const cleanup = () => {
+      if (!responded) {
+        responded = true;
+        socket.destroy();
+      }
+    };
+
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => {
+      cleanup();
+      resolve(true);
+    });
+    socket.once('timeout', () => {
+      cleanup();
+      resolve(false);
+    });
+    socket.once('error', () => {
+      cleanup();
+      resolve(false);
+    });
+
+    socket.connect(port, host);
+  });
+}
+
+async function checkMongoReachability(host, port) {
+  if (host === 'localhost') {
+    // Check both 127.0.0.1 (IPv4 loopback) and ::1 (IPv6 loopback)
+    const v4 = await checkTcpConnect('127.0.0.1', port);
+    if (v4) return true;
+    const v6 = await checkTcpConnect('::1', port);
+    return v6;
+  }
+  return checkTcpConnect(host, port);
+}
 
 function getWindowsPortListener(port) {
   try {
@@ -80,7 +157,20 @@ async function main() {
     process.exit(1);
   }
 
+  // Authoritative preflight reachability check for MongoDB
+  const { host, port } = getMongoConfig();
+  const mongoReachable = await checkMongoReachability(host, port);
+  if (!mongoReachable) {
+    console.error('\n[CampusFlow Preflight]');
+    console.error(`MongoDB is not available at ${host}:${port}.`);
+    console.error('CampusFlow requires MongoDB before the API can start.');
+    console.error('Expected: database campusflow, port 27017, replica set rs0');
+    console.error('Start the configured MongoDB instance/service, then run: npm run dev\n');
+    process.exit(1);
+  }
+
   console.log('[CampusFlow Preflight Check] Ports 5000 and 3000 are available.');
+  console.log(`[CampusFlow Preflight Check] MongoDB is reachable at ${host}:${port}.`);
 }
 
 main().catch((err) => {
