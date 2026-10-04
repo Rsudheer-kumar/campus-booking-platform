@@ -24,6 +24,7 @@ import { Card, Badge, Button, Select, Skeleton } from "@/components/ui";
 import { BookingModal } from "@/components/calendar/booking-modal";
 import { TimetableDetailModal } from "@/components/calendar/timetable-detail-modal";
 import { BookingDetailModal } from "@/components/calendar/booking-detail-modal";
+import { CheckInModal } from "@/components/bookings/check-in-modal";
 import {
   api,
   type Resource,
@@ -53,6 +54,7 @@ function CalendarView() {
   const [modalSlot, setModalSlot] = useState<{ start: string; end: string } | null>(null);
   const [selectedTimetable, setSelectedTimetable] = useState<TimetableEntry | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<Reservation | null>(null);
+  const [checkInModalBooking, setCheckInModalBooking] = useState<Reservation | null>(null);
 
   // 1. Fetch Resources — runs ONCE on mount only.
   const initialResourceIdRef = useRef<string | null>(null);
@@ -133,10 +135,13 @@ function CalendarView() {
       ]);
 
       setTimetables(ttRes.entries || []);
-      // Filter out cancelled bookings
+      // Include all active bookings holding capacity on calendar (CONFIRMED, PENDING, CHECKED_IN)
       setBookings(
         (bkRes.bookings || []).filter(
-          (b) => b.status === "CONFIRMED" || b.status === "PENDING"
+          (b) =>
+            b.status === "CONFIRMED" ||
+            b.status === "PENDING" ||
+            b.status === "CHECKED_IN"
         )
       );
     } catch (err) {
@@ -799,6 +804,15 @@ function CalendarView() {
           onClose={() => setSelectedBooking(null)}
           booking={selectedBooking}
           resource={activeResource}
+          onOpenCheckIn={(bk) => setCheckInModalBooking(bk)}
+        />
+
+        {/* Phase 3.3 Check-In Modal */}
+        <CheckInModal
+          open={!!checkInModalBooking}
+          onClose={() => setCheckInModalBooking(null)}
+          booking={checkInModalBooking}
+          onSuccess={loadScheduleData}
         />
 
         {/* Booking Creation Modal */}

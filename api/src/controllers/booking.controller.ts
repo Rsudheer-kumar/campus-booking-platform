@@ -299,3 +299,129 @@ export async function rejectBooking(req: Request, res: Response, next: NextFunct
     next(error);
   }
 }
+
+export async function generateCheckInToken(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    if (!req.user) {
+      return next(new ForbiddenError('Unauthorized'));
+    }
+
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const isAdmin = req.user.roles.includes(UserRole.ADMIN);
+
+    const tokenData = await ReservationService.generateCheckInToken(
+      id,
+      req.user.id,
+      isAdmin
+    );
+
+    sendSuccess(res, tokenData, 200);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function checkInBooking(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    if (!req.user) {
+      return next(new ForbiddenError('Unauthorized'));
+    }
+
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { token, resourceId } = req.body;
+
+    const result = await ReservationService.checkIn({
+      reservationId: id,
+      userId: req.user.id,
+      userRoles: req.user.roles,
+      token,
+      scannedResourceId: resourceId,
+    });
+
+    sendSuccess(res, result, 200);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function manualCheckInBooking(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    if (!req.user) {
+      return next(new ForbiddenError('Unauthorized'));
+    }
+
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { justification } = req.body;
+
+    const result = await ReservationService.manualCheckIn({
+      reservationId: id,
+      adminUserId: req.user.id,
+      justification,
+    });
+
+    sendSuccess(res, result, 200);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function checkoutBooking(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    if (!req.user) {
+      return next(new ForbiddenError('Unauthorized'));
+    }
+
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+    const result = await ReservationService.checkout({
+      reservationId: id,
+      userId: req.user.id,
+      userRoles: req.user.roles,
+    });
+
+    sendSuccess(res, result, 200);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function pardonNoShowBooking(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    if (!req.user) {
+      return next(new ForbiddenError('Unauthorized'));
+    }
+
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { reason } = req.body;
+
+    const result = await ReservationService.pardonNoShow({
+      reservationId: id,
+      adminUserId: req.user.id,
+      reason,
+    });
+
+    sendSuccess(res, result, 200);
+  } catch (error) {
+    next(error);
+  }
+}

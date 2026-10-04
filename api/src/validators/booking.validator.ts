@@ -386,3 +386,97 @@ export function validatePendingApprovalsQuery(data: unknown): ValidationResult<P
 
   return { success: true, data: result };
 }
+
+// ─── Phase 3.3 Check-In & Auto-Release Validators ───────────────────────────
+
+export interface CheckInBodyInput {
+  token: string;
+  resourceId: string;
+  method?: 'QR_SCAN';
+}
+
+export function validateCheckInBody(data: unknown): ValidationResult<CheckInBodyInput> {
+  const record = (data || {}) as Record<string, unknown>;
+  const errors: ValidationIssue[] = [];
+
+  if (!record.token || typeof record.token !== 'string') {
+    errors.push({ field: 'token', message: 'token is required and must be a string' });
+  } else if (record.token.trim().length < 32) {
+    errors.push({ field: 'token', message: 'token must be at least 32 characters' });
+  }
+
+  if (!record.resourceId || typeof record.resourceId !== 'string' || !MONGO_ID_REGEX.test(record.resourceId)) {
+    errors.push({ field: 'resourceId', message: 'resourceId is required and must be a valid 24-character hex ObjectId' });
+  }
+
+  if (record.method !== undefined && record.method !== 'QR_SCAN') {
+    errors.push({ field: 'method', message: 'method must be QR_SCAN' });
+  }
+
+  if (errors.length > 0) {
+    return { success: false, errors };
+  }
+
+  return {
+    success: true,
+    data: {
+      token: (record.token as string).trim(),
+      resourceId: record.resourceId as string,
+      method: 'QR_SCAN',
+    },
+  };
+}
+
+export interface ManualCheckInBodyInput {
+  justification: string;
+}
+
+export function validateManualCheckInBody(data: unknown): ValidationResult<ManualCheckInBodyInput> {
+  const record = (data || {}) as Record<string, unknown>;
+  const errors: ValidationIssue[] = [];
+
+  if (!record.justification || typeof record.justification !== 'string') {
+    errors.push({ field: 'justification', message: 'justification is required and must be a string' });
+  } else {
+    const trimmed = record.justification.trim();
+    if (trimmed.length < 10 || trimmed.length > 500) {
+      errors.push({ field: 'justification', message: 'justification must be between 10 and 500 characters' });
+    }
+  }
+
+  if (errors.length > 0) {
+    return { success: false, errors };
+  }
+
+  return {
+    success: true,
+    data: { justification: (record.justification as string).trim() },
+  };
+}
+
+export interface PardonNoShowBodyInput {
+  reason: string;
+}
+
+export function validatePardonNoShowBody(data: unknown): ValidationResult<PardonNoShowBodyInput> {
+  const record = (data || {}) as Record<string, unknown>;
+  const errors: ValidationIssue[] = [];
+
+  if (!record.reason || typeof record.reason !== 'string') {
+    errors.push({ field: 'reason', message: 'reason is required and must be a string' });
+  } else {
+    const trimmed = record.reason.trim();
+    if (trimmed.length < 10 || trimmed.length > 500) {
+      errors.push({ field: 'reason', message: 'reason must be between 10 and 500 characters' });
+    }
+  }
+
+  if (errors.length > 0) {
+    return { success: false, errors };
+  }
+
+  return {
+    success: true,
+    data: { reason: (record.reason as string).trim() },
+  };
+}

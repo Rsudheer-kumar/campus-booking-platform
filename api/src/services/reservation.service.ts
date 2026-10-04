@@ -5,6 +5,9 @@
  */
 
 import mongoose, { Types } from 'mongoose';
+import crypto from 'crypto';
+import { env } from '../config/env';
+import { tokenRateLimiter } from '../utils/rateLimiter';
 import {
   Reservation,
   type IReservation,
@@ -26,6 +29,7 @@ import { AvailabilityService } from './availability.service';
 import { QuotaService } from './quota.service';
 import { ApprovalPolicyService } from './approvalPolicy.service';
 import {
+  AppError,
   BadRequestError,
   NotFoundError,
   ConflictError,
@@ -67,6 +71,14 @@ export interface PaginatedReservations {
   page: number;
   limit: number;
   totalPages: number;
+}
+
+export interface CheckInTokenResult {
+  token: string;
+  expiresAt: string;
+  resourceId: string;
+  validFrom: string;
+  validUntil: string;
 }
 
 export class ReservationService {
@@ -136,6 +148,39 @@ export class ReservationService {
 
         if (!user.isActive) {
           throw new BadRequestError('User account is currently inactive and cannot make reservations');
+        }
+
+        // Step B.2: Dynamic No-Show Strike Restriction (Phase 3.3)
+        const noShowWindowStart = new Date(Date.now() - env.NO_SHOW_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+        const qualifyingNoShows = await Reservation.countDocuments({
+          user: user._id,
+          status: ReservationStatus.NO_SHOW,
+          startAt: { $gte: noShowWindowStart },
+          noShowPardoned: { $ne: true },
+        }).session(session);
+
+        if (qualifyingNoShows >= env.NO_SHOW_STRIKE_THRESHOLD) {
+          const latestNoShow = await Reservation.findOne({
+            user: user._id,
+            status: ReservationStatus.NO_SHOW,
+            startAt: { $gte: noShowWindowStart },
+            noShowPardoned: { $ne: true },
+          })
+            .sort({ startAt: -1 })
+            .select('startAt autoReleasedAt')
+            .session(session)
+            .lean();
+
+          const refDate = (latestNoShow?.autoReleasedAt || latestNoShow?.startAt || new Date()).getTime();
+          const suspensionExpiresAt = refDate + env.NO_SHOW_SUSPENSION_DAYS * 24 * 60 * 60 * 1000;
+
+          if (Date.now() < suspensionExpiresAt) {
+            throw new AppError(
+              409,
+              'NO_SHOW_RESTRICTION_ACTIVE',
+              `User has accumulated ${qualifyingNoShows} unexcused no-shows in the last ${env.NO_SHOW_WINDOW_DAYS} days. Booking privileges are suspended until ${new Date(suspensionExpiresAt).toISOString()}.`
+            );
+          }
         }
 
         // Step C: Authoritative Availability check within transaction
@@ -658,6 +703,9 @@ export class ReservationService {
       if (actorId) reservation.cancelledBy = new Types.ObjectId(actorId);
       reservation.cancelledAt = new Date();
       if (reason) reservation.cancellationReason = reason.trim();
+    } else if (targetStatus === ReservationStatus.NO_SHOW) {
+      reservation.autoReleasedAt = new Date();
+      if (reason) reservation.autoReleaseReason = reason.trim();
     }
 
     reservation.status = targetStatus;
@@ -735,6 +783,566 @@ export class ReservationService {
       page,
       limit,
       totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  /**
+   * Phase 3.3: Generates an ephemeral check-in token for a confirmed reservation.
+   * Enforces ownership/ADMIN anti-enumeration 404 policy, status validation,
+   * live operational time window, 5 req/min rate limiting, and atomic token invalidation.
+   */
+  public static async generateCheckInToken(
+    reservationId: string | Types.ObjectId,
+    userId: string,
+    isAdmin: boolean
+  ): Promise<CheckInTokenResult> {
+    const reservation = await Reservation.findById(reservationId);
+    if (!reservation) {
+      throw new AppError(404, 'RESERVATION_NOT_FOUND', 'Reservation not found');
+    }
+
+    // Anti-enumeration policy: Non-owners and non-admins receive identical 404
+    const ownerId =
+      reservation.user instanceof Types.ObjectId
+        ? reservation.user.toString()
+        : (reservation.user as any)?._id?.toString() || String(reservation.user);
+
+    if (!isAdmin && ownerId !== userId.toString()) {
+      throw new AppError(404, 'RESERVATION_NOT_FOUND', 'Reservation not found');
+    }
+
+    // Status validation
+    if (reservation.status === ReservationStatus.CHECKED_IN) {
+      throw new AppError(409, 'ALREADY_CHECKED_IN', 'Reservation has already been checked in');
+    }
+
+    if (reservation.status === ReservationStatus.PENDING) {
+      throw new AppError(
+        409,
+        'RESERVATION_NOT_CONFIRMED',
+        'Reservation is awaiting approval and cannot be checked in'
+      );
+    }
+
+    if (reservation.status !== ReservationStatus.CONFIRMED) {
+      throw new AppError(
+        409,
+        'INVALID_RESERVATION_STATUS',
+        `Reservation is in ${reservation.status} status and cannot be checked in`
+      );
+    }
+
+    // Server-time operational window validation: [start - early, start + grace]
+    const now = new Date();
+    const startAt = new Date(reservation.startAt);
+    const endAt = new Date(reservation.endAt);
+    const earlyWindowMs = env.CHECKIN_EARLY_MINUTES * 60000;
+    const graceWindowMs = env.AUTO_RELEASE_GRACE_MINUTES * 60000;
+    const validFrom = new Date(startAt.getTime() - earlyWindowMs);
+    const validUntil = new Date(startAt.getTime() + graceWindowMs);
+
+    if (now.getTime() < validFrom.getTime()) {
+      throw new AppError(
+        400,
+        'CHECKIN_WINDOW_NOT_OPEN',
+        `Check-in window opens ${env.CHECKIN_EARLY_MINUTES} minutes before booking start`
+      );
+    }
+
+    if (now.getTime() > validUntil.getTime() || now.getTime() >= endAt.getTime()) {
+      throw new AppError(
+        400,
+        'CHECKIN_WINDOW_EXPIRED',
+        'Check-in window has expired; reservation has been auto-released'
+      );
+    }
+
+    // Rate limiting: max 5 requests per reservation per 60 seconds
+    const rateLimitKey = `token_gen:${reservation._id.toString()}`;
+    if (tokenRateLimiter.isRateLimited(rateLimitKey, 5, 60000)) {
+      throw new AppError(
+        429,
+        'RATE_LIMIT_EXCEEDED',
+        'Too many check-in token requests. Please wait a minute before requesting a new token.'
+      );
+    }
+
+    // Ephemeral token generation: 256 bits of entropy (32 bytes hex = 64 characters)
+    const plaintextToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(plaintextToken).digest('hex');
+    const expiresAt = new Date(now.getTime() + 5 * 60 * 1000); // 5-minute TTL
+
+    // Atomic update invalidating any previous token
+    const updated = await Reservation.findOneAndUpdate(
+      {
+        _id: reservation._id,
+        status: ReservationStatus.CONFIRMED,
+      },
+      {
+        $set: {
+          checkInTokenHash: tokenHash,
+          checkInTokenExpiresAt: expiresAt,
+        },
+        $unset: {
+          checkInTokenUsedAt: 1,
+        },
+      },
+      { new: true }
+    );
+
+    if (!updated) {
+      throw new AppError(
+        409,
+        'INVALID_RESERVATION_STATUS',
+        'Reservation status changed concurrently. Please refresh.'
+      );
+    }
+
+    const resourceId =
+      reservation.resource && typeof reservation.resource === 'object' && '_id' in reservation.resource
+        ? (reservation.resource as any)._id.toString()
+        : String(reservation.resource);
+
+    return {
+      token: plaintextToken,
+      expiresAt: expiresAt.toISOString(),
+      resourceId,
+      validFrom: validFrom.toISOString(),
+      validUntil: validUntil.toISOString(),
+    };
+  }
+
+  /**
+   * Phase 3.3: Executes QR-based check-in with 10 sequential verification checks,
+   * anti-enumeration 404 policy, idempotent re-scan reconciliation, and atomic status transition.
+   */
+  public static async checkIn(params: {
+    reservationId: string | Types.ObjectId;
+    userId: string;
+    userRoles: UserRoleType[];
+    token: string;
+    scannedResourceId: string;
+  }): Promise<{
+    reservationId: string;
+    status: ReservationStatusType;
+    checkInAt: string;
+    checkInMethod: string;
+    isIdempotent?: boolean;
+  }> {
+    const { reservationId, userId, userRoles, token, scannedResourceId } = params;
+
+    const reservation = await Reservation.findById(reservationId).select('+checkInTokenHash');
+    if (!reservation) {
+      throw new AppError(404, 'RESERVATION_NOT_FOUND', 'Reservation not found');
+    }
+
+    const ownerId =
+      reservation.user instanceof Types.ObjectId
+        ? reservation.user.toString()
+        : (reservation.user as any)?._id?.toString() || String(reservation.user);
+
+    const isOwner = ownerId === userId.toString();
+    const isAdmin = userRoles.includes(UserRole.ADMIN);
+
+    // Check c & b: Anti-Enumeration Policy (non-owners and non-admins receive identical 404)
+    if (!isOwner && !isAdmin) {
+      throw new AppError(404, 'RESERVATION_NOT_FOUND', 'Reservation not found');
+    }
+
+    // Helper for timing-safe hash comparison
+    const incomingHash = crypto.createHash('sha256').update(token).digest('hex');
+    const isMatchingToken = Boolean(
+      reservation.checkInTokenHash &&
+        reservation.checkInTokenHash.length === incomingHash.length &&
+        crypto.timingSafeEqual(Buffer.from(incomingHash, 'hex'), Buffer.from(reservation.checkInTokenHash, 'hex'))
+    );
+
+    // Check i: Status & Idempotency Branching
+    if (reservation.status === ReservationStatus.CHECKED_IN) {
+      if (isMatchingToken && (isOwner || isAdmin)) {
+        // Idempotent Return: Zero database writes occur
+        return {
+          reservationId: reservation._id.toString(),
+          status: ReservationStatus.CHECKED_IN,
+          checkInAt: reservation.checkInAt ? reservation.checkInAt.toISOString() : new Date().toISOString(),
+          checkInMethod: reservation.checkInMethod || 'QR_SCAN',
+          isIdempotent: true,
+        };
+      }
+      throw new AppError(409, 'ALREADY_CHECKED_IN', 'Reservation has already been checked in');
+    }
+
+    if (reservation.status === ReservationStatus.PENDING) {
+      throw new AppError(
+        409,
+        'RESERVATION_NOT_CONFIRMED',
+        'Reservation is awaiting approval and cannot be checked in'
+      );
+    }
+
+    if (reservation.status !== ReservationStatus.CONFIRMED) {
+      throw new AppError(
+        409,
+        'INVALID_RESERVATION_STATUS',
+        'Reservation is in a terminal status and cannot be checked in'
+      );
+    }
+
+    // Check j: Server Time Boundaries
+    const now = new Date();
+    const startAt = new Date(reservation.startAt);
+    const endAt = new Date(reservation.endAt);
+    const earlyWindowMs = env.CHECKIN_EARLY_MINUTES * 60000;
+    const graceWindowMs = env.AUTO_RELEASE_GRACE_MINUTES * 60000;
+    const validFrom = new Date(startAt.getTime() - earlyWindowMs);
+    const validUntil = new Date(startAt.getTime() + graceWindowMs);
+
+    if (now.getTime() < validFrom.getTime()) {
+      throw new AppError(
+        400,
+        'CHECKIN_WINDOW_NOT_OPEN',
+        `Check-in window opens ${env.CHECKIN_EARLY_MINUTES} minutes before booking start`
+      );
+    }
+
+    if (now.getTime() > validUntil.getTime() || now.getTime() >= endAt.getTime()) {
+      throw new AppError(
+        400,
+        'CHECKIN_WINDOW_EXPIRED',
+        'Check-in window has expired; reservation has been auto-released'
+      );
+    }
+
+    // Check e & f: Physical Resource Binding
+    const reservationResourceId =
+      reservation.resource && typeof reservation.resource === 'object' && '_id' in reservation.resource
+        ? (reservation.resource as any)._id.toString()
+        : String(reservation.resource);
+
+    if (reservationResourceId !== scannedResourceId) {
+      throw new AppError(
+        400,
+        'RESOURCE_MISMATCH',
+        'Scanned facility QR code does not match this reservation'
+      );
+    }
+
+    // Check d, g & h: Token Cryptographic & Expiry Verification
+    if (!isMatchingToken) {
+      throw new AppError(400, 'INVALID_CHECKIN_TOKEN', 'Invalid check-in token supplied');
+    }
+
+    if (!reservation.checkInTokenExpiresAt || now.getTime() > reservation.checkInTokenExpiresAt.getTime()) {
+      throw new AppError(
+        400,
+        'TOKEN_EXPIRED',
+        'Check-in token has expired; please regenerate from your booking view'
+      );
+    }
+
+    if (reservation.checkInTokenUsedAt != null) {
+      throw new AppError(409, 'TOKEN_ALREADY_USED', 'Check-in token has already been consumed');
+    }
+
+    // Atomic Commit
+    const updated = await Reservation.findOneAndUpdate(
+      {
+        _id: reservation._id,
+        status: ReservationStatus.CONFIRMED,
+        checkInTokenHash: reservation.checkInTokenHash,
+        checkInTokenUsedAt: null,
+      },
+      {
+        $set: {
+          status: ReservationStatus.CHECKED_IN,
+          checkInAt: now,
+          checkedInBy: new Types.ObjectId(userId),
+          checkInMethod: 'QR_SCAN',
+          checkInTokenUsedAt: now,
+        },
+      },
+      { new: true }
+    );
+
+    if (!updated) {
+      // Re-read once and classify
+      const refreshed = await Reservation.findById(reservation._id);
+      if (refreshed?.status === ReservationStatus.CHECKED_IN && isMatchingToken) {
+        return {
+          reservationId: refreshed._id.toString(),
+          status: ReservationStatus.CHECKED_IN,
+          checkInAt: refreshed.checkInAt ? refreshed.checkInAt.toISOString() : now.toISOString(),
+          checkInMethod: refreshed.checkInMethod || 'QR_SCAN',
+          isIdempotent: true,
+        };
+      }
+      throw new AppError(
+        409,
+        'INVALID_RESERVATION_STATUS',
+        'Reservation status was concurrently modified'
+      );
+    }
+
+    return {
+      reservationId: updated._id.toString(),
+      status: ReservationStatus.CHECKED_IN,
+      checkInAt: updated.checkInAt ? updated.checkInAt.toISOString() : now.toISOString(),
+      checkInMethod: 'QR_SCAN',
+    };
+  }
+
+  /**
+   * Phase 3.3: Admin manual staff override check-in with mandatory justification (10-500 chars).
+   * Permitted up to endAt even after the automated grace window.
+   */
+  public static async manualCheckIn(params: {
+    reservationId: string | Types.ObjectId;
+    adminUserId: string;
+    justification: string;
+  }): Promise<{
+    reservationId: string;
+    status: ReservationStatusType;
+    checkInAt: string;
+    checkInMethod: string;
+  }> {
+    const { reservationId, adminUserId, justification } = params;
+
+    const reservation = await Reservation.findById(reservationId);
+    if (!reservation) {
+      throw new AppError(404, 'RESERVATION_NOT_FOUND', 'Reservation not found');
+    }
+
+    if (reservation.status === ReservationStatus.CHECKED_IN) {
+      throw new AppError(409, 'ALREADY_CHECKED_IN', 'Reservation has already been checked in');
+    }
+
+    if (reservation.status === ReservationStatus.PENDING) {
+      throw new AppError(
+        409,
+        'RESERVATION_NOT_CONFIRMED',
+        'Reservation is awaiting approval and cannot be checked in'
+      );
+    }
+
+    if (reservation.status !== ReservationStatus.CONFIRMED) {
+      throw new AppError(
+        409,
+        'INVALID_RESERVATION_STATUS',
+        `Reservation is in ${reservation.status} status and cannot be checked in`
+      );
+    }
+
+    const now = new Date();
+    const startAt = new Date(reservation.startAt);
+    const endAt = new Date(reservation.endAt);
+    const earlyWindowMs = env.CHECKIN_EARLY_MINUTES * 60000;
+    const validFrom = new Date(startAt.getTime() - earlyWindowMs);
+
+    if (now.getTime() < validFrom.getTime()) {
+      throw new AppError(
+        400,
+        'CHECKIN_WINDOW_NOT_OPEN',
+        `Check-in window opens ${env.CHECKIN_EARLY_MINUTES} minutes before booking start`
+      );
+    }
+
+    if (now.getTime() >= endAt.getTime()) {
+      throw new AppError(
+        400,
+        'RESERVATION_ENDED',
+        'Reservation time window has already ended'
+      );
+    }
+
+    const trimmedJustification = justification.trim();
+    if (trimmedJustification.length < 10 || trimmedJustification.length > 500) {
+      throw new AppError(
+        400,
+        'VALIDATION_ERROR',
+        'Justification must be between 10 and 500 characters'
+      );
+    }
+
+    const updated = await Reservation.findOneAndUpdate(
+      {
+        _id: reservation._id,
+        status: ReservationStatus.CONFIRMED,
+      },
+      {
+        $set: {
+          status: ReservationStatus.CHECKED_IN,
+          checkInAt: now,
+          checkedInBy: new Types.ObjectId(adminUserId),
+          checkInMethod: 'ADMIN_MANUAL',
+          checkInNotes: trimmedJustification,
+        },
+      },
+      { new: true }
+    );
+
+    if (!updated) {
+      throw new AppError(
+        409,
+        'INVALID_RESERVATION_STATUS',
+        'Reservation status was concurrently modified'
+      );
+    }
+
+    return {
+      reservationId: updated._id.toString(),
+      status: ReservationStatus.CHECKED_IN,
+      checkInAt: updated.checkInAt ? updated.checkInAt.toISOString() : now.toISOString(),
+      checkInMethod: 'ADMIN_MANUAL',
+    };
+  }
+
+  /**
+   * Phase 3.3: Early checkout / completion. Transitions from CHECKED_IN to COMPLETED,
+   * setting checkOutAt and instantly freeing slot capacity.
+   */
+  public static async checkout(params: {
+    reservationId: string | Types.ObjectId;
+    userId: string;
+    userRoles: UserRoleType[];
+  }): Promise<{
+    reservationId: string;
+    status: ReservationStatusType;
+    checkOutAt: string;
+  }> {
+    const { reservationId, userId, userRoles } = params;
+
+    const reservation = await Reservation.findById(reservationId);
+    if (!reservation) {
+      throw new AppError(404, 'RESERVATION_NOT_FOUND', 'Reservation not found');
+    }
+
+    const ownerId =
+      reservation.user instanceof Types.ObjectId
+        ? reservation.user.toString()
+        : (reservation.user as any)?._id?.toString() || String(reservation.user);
+
+    const isOwner = ownerId === userId.toString();
+    const isAdmin = userRoles.includes(UserRole.ADMIN);
+
+    if (!isOwner && !isAdmin) {
+      throw new AppError(404, 'RESERVATION_NOT_FOUND', 'Reservation not found');
+    }
+
+    if (reservation.status !== ReservationStatus.CHECKED_IN) {
+      throw new AppError(
+        409,
+        'INVALID_RESERVATION_STATUS',
+        'Only checked-in reservations can be checked out'
+      );
+    }
+
+    const now = new Date();
+    const updated = await Reservation.findOneAndUpdate(
+      {
+        _id: reservation._id,
+        status: ReservationStatus.CHECKED_IN,
+      },
+      {
+        $set: {
+          status: ReservationStatus.COMPLETED,
+          checkOutAt: now,
+        },
+      },
+      { new: true }
+    );
+
+    if (!updated) {
+      throw new AppError(
+        409,
+        'INVALID_RESERVATION_STATUS',
+        'Reservation status was concurrently modified'
+      );
+    }
+
+    return {
+      reservationId: updated._id.toString(),
+      status: ReservationStatus.COMPLETED,
+      checkOutAt: updated.checkOutAt ? updated.checkOutAt.toISOString() : now.toISOString(),
+    };
+  }
+
+  /**
+   * Phase 3.3: Administrative pardon for a NO_SHOW reservation.
+   * Clears the strike from dynamic quota/suspension evaluations.
+   */
+  public static async pardonNoShow(params: {
+    reservationId: string | Types.ObjectId;
+    adminUserId: string;
+    reason: string;
+  }): Promise<{
+    reservationId: string;
+    status: ReservationStatusType;
+    noShowPardoned: boolean;
+    noShowPardonedBy: string;
+    noShowPardonReason: string;
+  }> {
+    const { reservationId, adminUserId, reason } = params;
+
+    const reservation = await Reservation.findById(reservationId);
+    if (!reservation) {
+      throw new AppError(404, 'RESERVATION_NOT_FOUND', 'Reservation not found');
+    }
+
+    if (reservation.status !== ReservationStatus.NO_SHOW) {
+      throw new AppError(
+        409,
+        'PARDON_NOT_ALLOWED',
+        'Only reservations in NO_SHOW status can be pardoned'
+      );
+    }
+
+    if (reservation.noShowPardoned === true) {
+      throw new AppError(
+        409,
+        'ALREADY_PARDONED',
+        'Reservation has already been pardoned'
+      );
+    }
+
+    const trimmedReason = reason.trim();
+    if (trimmedReason.length < 10 || trimmedReason.length > 500) {
+      throw new AppError(
+        400,
+        'VALIDATION_ERROR',
+        'Pardon reason must be between 10 and 500 characters'
+      );
+    }
+
+    const updated = await Reservation.findOneAndUpdate(
+      {
+        _id: reservation._id,
+        status: ReservationStatus.NO_SHOW,
+        noShowPardoned: { $ne: true },
+      },
+      {
+        $set: {
+          noShowPardoned: true,
+          noShowPardonedBy: new Types.ObjectId(adminUserId),
+          noShowPardonReason: trimmedReason,
+        },
+      },
+      { new: true }
+    );
+
+    if (!updated) {
+      throw new AppError(
+        409,
+        'INVALID_RESERVATION_STATUS',
+        'Reservation was concurrently modified'
+      );
+    }
+
+    return {
+      reservationId: updated._id.toString(),
+      status: ReservationStatus.NO_SHOW,
+      noShowPardoned: true,
+      noShowPardonedBy: adminUserId,
+      noShowPardonReason: updated.noShowPardonReason || trimmedReason,
     };
   }
 }

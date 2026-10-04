@@ -21,6 +21,7 @@ export const ReservationStatus = {
   CANCELLED: 'CANCELLED',
   REJECTED: 'REJECTED',
   EXPIRED: 'EXPIRED',
+  NO_SHOW: 'NO_SHOW',
 } as const;
 
 export type ReservationStatusType = (typeof ReservationStatus)[keyof typeof ReservationStatus];
@@ -42,6 +43,7 @@ export const TERMINAL_RESERVATION_STATES: readonly ReservationStatusType[] = [
   ReservationStatus.CANCELLED,
   ReservationStatus.REJECTED,
   ReservationStatus.EXPIRED,
+  ReservationStatus.NO_SHOW,
 ] as const;
 
 /**
@@ -59,6 +61,7 @@ export const VALID_STATUS_TRANSITIONS: Readonly<Record<ReservationStatusType, re
     ReservationStatus.COMPLETED,
     ReservationStatus.CANCELLED,
     ReservationStatus.EXPIRED,
+    ReservationStatus.NO_SHOW,
   ],
   [ReservationStatus.CHECKED_IN]: [
     ReservationStatus.COMPLETED,
@@ -68,6 +71,7 @@ export const VALID_STATUS_TRANSITIONS: Readonly<Record<ReservationStatusType, re
   [ReservationStatus.CANCELLED]: [],
   [ReservationStatus.REJECTED]: [],
   [ReservationStatus.EXPIRED]: [],
+  [ReservationStatus.NO_SHOW]: [],
 };
 
 /**
@@ -116,6 +120,18 @@ export interface IReservation {
   cancellationReason?: string;
   checkInAt?: Date;
   checkOutAt?: Date;
+  // Phase 3.3 Check-In & Auto-Release Tracking
+  checkInMethod?: 'QR_SCAN' | 'ADMIN_MANUAL';
+  checkedInBy?: Types.ObjectId;
+  checkInNotes?: string;
+  checkInTokenHash?: string;
+  checkInTokenExpiresAt?: Date;
+  checkInTokenUsedAt?: Date;
+  autoReleasedAt?: Date;
+  autoReleaseReason?: string;
+  noShowPardoned?: boolean;
+  noShowPardonedBy?: Types.ObjectId;
+  noShowPardonReason?: string;
   // Phase 3.2 Approval Workflow
   policyId?: Types.ObjectId | null;
   currentStepOrder?: number | null;
@@ -228,6 +244,64 @@ export const ReservationSchema = new Schema<IReservation>(
     },
     checkOutAt: {
       type: Date,
+      required: false,
+    },
+    // Phase 3.3 Check-In & Auto-Release Fields
+    checkInMethod: {
+      type: String,
+      enum: {
+        values: ['QR_SCAN', 'ADMIN_MANUAL'],
+        message: 'Invalid checkInMethod: {VALUE}',
+      },
+      required: false,
+    },
+    checkedInBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: false,
+    },
+    checkInNotes: {
+      type: String,
+      trim: true,
+      maxlength: [500, 'Check-in notes cannot exceed 500 characters'],
+      required: false,
+    },
+    checkInTokenHash: {
+      type: String,
+      required: false,
+      select: false,
+    },
+    checkInTokenExpiresAt: {
+      type: Date,
+      required: false,
+    },
+    checkInTokenUsedAt: {
+      type: Date,
+      required: false,
+    },
+    autoReleasedAt: {
+      type: Date,
+      required: false,
+    },
+    autoReleaseReason: {
+      type: String,
+      trim: true,
+      required: false,
+    },
+    noShowPardoned: {
+      type: Boolean,
+      default: false,
+      required: false,
+    },
+    noShowPardonedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: false,
+    },
+    noShowPardonReason: {
+      type: String,
+      trim: true,
+      maxlength: [500, 'No-show pardon reason cannot exceed 500 characters'],
       required: false,
     },
     // Phase 3.2 Approval Workflow Fields
@@ -352,6 +426,23 @@ ReservationSchema.index(
       activeStepDeadline: { $type: 'date' },
     },
     name: 'idx_reservations_active_step_deadline',
+  }
+);
+
+// 7. Phase 3.3 Check-in token lookup index (sparse, for fast cryptographic token lookups)
+ReservationSchema.index(
+  { checkInTokenHash: 1 },
+  {
+    name: 'idx_reservations_token_hash',
+    sparse: true,
+  }
+);
+
+// 8. Phase 3.3 User status history index (for fast no-show strike counting at booking creation)
+ReservationSchema.index(
+  { user: 1, status: 1, startAt: -1 },
+  {
+    name: 'idx_user_status_start_desc',
   }
 );
 

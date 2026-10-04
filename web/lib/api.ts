@@ -111,7 +111,8 @@ export type ReservationStatus =
   | "COMPLETED"
   | "CANCELLED"
   | "REJECTED"
-  | "EXPIRED";
+  | "EXPIRED"
+  | "NO_SHOW";
 
 export interface ApprovalChainStepSnapshot {
   stepOrder: number;
@@ -137,6 +138,14 @@ export interface Reservation {
   status: ReservationStatus;
   title: string;
   description?: string;
+  checkInAt?: string;
+  checkOutAt?: string;
+  checkInMethod?: "QR_SCAN" | "ADMIN_MANUAL";
+  autoReleasedAt?: string;
+  autoReleaseReason?: string;
+  noShowPardoned?: boolean;
+  noShowPardonReason?: string;
+  noShowPardonedBy?: string;
   cancellationReason?: string;
   cancelledAt?: string;
   policyId?: string | null;
@@ -516,6 +525,106 @@ export const api = {
       });
       const booking = (res && "booking" in res && res.booking) ? res.booking : (res as Reservation);
       return { booking };
+    },
+
+    getCheckInToken: async (
+      id: string
+    ): Promise<{
+      token: string;
+      expiresAt: string;
+      resourceId: string;
+      validFrom: string;
+      validUntil: string;
+    }> => {
+      return request<{
+        token: string;
+        expiresAt: string;
+        resourceId: string;
+        validFrom: string;
+        validUntil: string;
+      }>(`/bookings/${id}/check-in-token`, {
+        method: "POST",
+      });
+    },
+
+    checkIn: async (
+      id: string,
+      payload: { token: string; resourceId: string }
+    ): Promise<{
+      reservationId: string;
+      status: ReservationStatus;
+      checkInAt: string;
+      checkInMethod: string;
+      isIdempotent?: boolean;
+    }> => {
+      return request<{
+        reservationId: string;
+        status: ReservationStatus;
+        checkInAt: string;
+        checkInMethod: string;
+        isIdempotent?: boolean;
+      }>(`/bookings/${id}/check-in`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+
+    manualCheckIn: async (
+      id: string,
+      payload: { justification: string }
+    ): Promise<{
+      reservationId: string;
+      status: ReservationStatus;
+      checkInAt: string;
+      checkInMethod: string;
+    }> => {
+      return request<{
+        reservationId: string;
+        status: ReservationStatus;
+        checkInAt: string;
+        checkInMethod: string;
+      }>(`/bookings/${id}/manual-check-in`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+
+    checkout: async (
+      id: string
+    ): Promise<{
+      reservationId: string;
+      status: ReservationStatus;
+      checkOutAt: string;
+    }> => {
+      return request<{
+        reservationId: string;
+        status: ReservationStatus;
+        checkOutAt: string;
+      }>(`/bookings/${id}/checkout`, {
+        method: "POST",
+      });
+    },
+
+    pardonNoShow: async (
+      id: string,
+      payload: { reason: string }
+    ): Promise<{
+      reservationId: string;
+      status: ReservationStatus;
+      noShowPardoned: boolean;
+      noShowPardonedBy: string;
+      noShowPardonReason: string;
+    }> => {
+      return request<{
+        reservationId: string;
+        status: ReservationStatus;
+        noShowPardoned: boolean;
+        noShowPardonedBy: string;
+        noShowPardonReason: string;
+      }>(`/bookings/${id}/pardon-no-show`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
     },
 
     checkAvailability: async (params: {

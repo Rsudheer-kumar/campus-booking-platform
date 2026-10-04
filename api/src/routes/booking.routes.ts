@@ -17,6 +17,11 @@ import {
   calculateSlots,
   approveBooking,
   rejectBooking,
+  generateCheckInToken,
+  checkInBooking,
+  manualCheckInBooking,
+  checkoutBooking,
+  pardonNoShowBooking,
 } from '../controllers/booking.controller';
 import { authenticate, requireRoles } from '../middleware/auth';
 import { validateRequest } from '../middleware/validate';
@@ -29,6 +34,9 @@ import {
   validateCalculateSlotsQuery,
   validateApproveBookingBody,
   validateRejectBookingBody,
+  validateCheckInBody,
+  validateManualCheckInBody,
+  validatePardonNoShowBody,
 } from '../validators/booking.validator';
 import { UserRole } from '../models/user.model';
 
@@ -68,6 +76,57 @@ router.get(
   authenticate,
   validateRequest({ params: validateMongoId('id') }),
   getBookingById
+);
+
+// Phase 3.3 Check-in token generation
+router.post(
+  '/:id/check-in-token',
+  authenticate,
+  validateRequest({ params: validateMongoId('id') }),
+  generateCheckInToken
+);
+
+// Phase 3.3 QR-based check-in
+router.post(
+  '/:id/check-in',
+  authenticate,
+  validateRequest({
+    params: validateMongoId('id'),
+    body: validateCheckInBody,
+  }),
+  checkInBooking
+);
+
+// Phase 3.3 Admin manual check-in
+router.post(
+  '/:id/manual-check-in',
+  authenticate,
+  requireRoles(UserRole.ADMIN),
+  validateRequest({
+    params: validateMongoId('id'),
+    body: validateManualCheckInBody,
+  }),
+  manualCheckInBooking
+);
+
+// Phase 3.3 Early checkout / completion
+router.post(
+  '/:id/checkout',
+  authenticate,
+  validateRequest({ params: validateMongoId('id') }),
+  checkoutBooking
+);
+
+// Phase 3.3 Administrative pardon for NO_SHOW
+router.post(
+  '/:id/pardon-no-show',
+  authenticate,
+  requireRoles(UserRole.ADMIN),
+  validateRequest({
+    params: validateMongoId('id'),
+    body: validatePardonNoShowBody,
+  }),
+  pardonNoShowBooking
 );
 
 router.post(

@@ -23,6 +23,15 @@ export interface AppConfig {
   readonly isProduction: boolean;
   readonly isDevelopment: boolean;
   readonly isTest: boolean;
+
+  // Phase 3.3 Check-in & Auto-release settings
+  readonly CHECKIN_EARLY_MINUTES: number;
+  readonly AUTO_RELEASE_GRACE_MINUTES: number;
+  readonly NO_SHOW_WINDOW_DAYS: number;
+  readonly NO_SHOW_STRIKE_THRESHOLD: number;
+  readonly NO_SHOW_SUSPENSION_DAYS: number;
+  readonly AUTO_RELEASE_POLL_INTERVAL_MS: number;
+  readonly AUTO_RELEASE_LOOKBACK_HOURS: number;
 }
 
 function parseNumber(value: string | undefined, defaultValue: number): number {
@@ -30,6 +39,23 @@ function parseNumber(value: string | undefined, defaultValue: number): number {
   const parsed = parseInt(value, 10);
   if (isNaN(parsed) || parsed <= 0) {
     throw new Error(`Invalid numeric environment variable: "${value}". Expected positive integer.`);
+  }
+  return parsed;
+}
+
+export function parseBoundedNumber(
+  value: string | undefined,
+  defaultValue: number,
+  name: string,
+  min: number,
+  max: number
+): number {
+  if (value === undefined || value === '') return defaultValue;
+  const parsed = parseInt(value, 10);
+  if (isNaN(parsed) || parsed < min || parsed > max) {
+    throw new Error(
+      `Invalid environment variable ${name}: "${value}". Expected integer between ${min} and ${max}.`
+    );
   }
   return parsed;
 }
@@ -84,6 +110,63 @@ function parseEnv(): AppConfig {
     ? validateSecret(process.env.JWT_REFRESH_SECRET, 'JWT_REFRESH_SECRET', 32)
     : process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-in-production-minimum-32-chars';
 
+  // Phase 3.3 Check-in & Auto-release configuration with bounds validation
+  const checkinEarlyMinutes = parseBoundedNumber(
+    process.env.CHECKIN_EARLY_MINUTES,
+    15,
+    'CHECKIN_EARLY_MINUTES',
+    1,
+    60
+  );
+
+  const autoReleaseGraceMinutes = parseBoundedNumber(
+    process.env.AUTO_RELEASE_GRACE_MINUTES,
+    15,
+    'AUTO_RELEASE_GRACE_MINUTES',
+    5,
+    60
+  );
+
+  const noShowWindowDays = parseBoundedNumber(
+    process.env.NO_SHOW_WINDOW_DAYS,
+    30,
+    'NO_SHOW_WINDOW_DAYS',
+    7,
+    90
+  );
+
+  const noShowStrikeThreshold = parseBoundedNumber(
+    process.env.NO_SHOW_STRIKE_THRESHOLD,
+    3,
+    'NO_SHOW_STRIKE_THRESHOLD',
+    1,
+    10
+  );
+
+  const noShowSuspensionDays = parseBoundedNumber(
+    process.env.NO_SHOW_SUSPENSION_DAYS,
+    14,
+    'NO_SHOW_SUSPENSION_DAYS',
+    1,
+    60
+  );
+
+  const autoReleasePollIntervalMs = parseBoundedNumber(
+    process.env.AUTO_RELEASE_POLL_INTERVAL_MS,
+    60000,
+    'AUTO_RELEASE_POLL_INTERVAL_MS',
+    10000,
+    300000
+  );
+
+  const autoReleaseLookbackHours = parseBoundedNumber(
+    process.env.AUTO_RELEASE_LOOKBACK_HOURS,
+    24,
+    'AUTO_RELEASE_LOOKBACK_HOURS',
+    1,
+    168
+  );
+
   return Object.freeze({
     NODE_ENV: currentEnv,
     PORT: port,
@@ -97,6 +180,13 @@ function parseEnv(): AppConfig {
     isProduction: currentEnv === 'production',
     isDevelopment: currentEnv === 'development',
     isTest: currentEnv === 'test',
+    CHECKIN_EARLY_MINUTES: checkinEarlyMinutes,
+    AUTO_RELEASE_GRACE_MINUTES: autoReleaseGraceMinutes,
+    NO_SHOW_WINDOW_DAYS: noShowWindowDays,
+    NO_SHOW_STRIKE_THRESHOLD: noShowStrikeThreshold,
+    NO_SHOW_SUSPENSION_DAYS: noShowSuspensionDays,
+    AUTO_RELEASE_POLL_INTERVAL_MS: autoReleasePollIntervalMs,
+    AUTO_RELEASE_LOOKBACK_HOURS: autoReleaseLookbackHours,
   });
 }
 

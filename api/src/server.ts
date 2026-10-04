@@ -17,6 +17,7 @@ import {
 } from './config/database';
 import { connectRedis, disconnectRedis, getRedisState } from './config/redis';
 import { logger } from './utils/logger';
+import { autoReleaseScheduler } from './schedulers/autoRelease.scheduler';
 
 let server: http.Server | null = null;
 let isShuttingDown = false;
@@ -40,6 +41,9 @@ async function startServer(): Promise<void> {
           `Connected to replica set "${readiness.setName}", expected "rs0". Ensure transaction support is configured properly.`
         );
       }
+
+      // Start autonomous background auto-release worker
+      autoReleaseScheduler.start();
     } catch (dbError) {
       const errorMsg = dbError instanceof Error ? dbError.message : String(dbError);
       logger.error(
@@ -159,10 +163,13 @@ async function shutdown(signal: string): Promise<void> {
       });
     }
 
-    // 2. Disconnect from Redis
+    // 2. Stop autonomous background schedulers
+    autoReleaseScheduler.stop();
+
+    // 3. Disconnect from Redis
     await disconnectRedis();
 
-    // 3. Disconnect from MongoDB
+    // 4. Disconnect from MongoDB
     await disconnectDatabase();
 
     logger.info('CampusFlow API shutdown complete. Exiting.');

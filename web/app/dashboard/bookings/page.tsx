@@ -13,10 +13,14 @@ import {
   CheckCircle2,
   ArrowRight,
   Filter,
+  QrCode,
+  LogOut,
+  ShieldCheck,
 } from "lucide-react";
 
 import { PageContainer, PageHeader } from "@/components/layout";
 import { Card, Badge, Button, Modal, Textarea, Skeleton, EmptyState } from "@/components/ui";
+import { CheckInModal } from "@/components/bookings/check-in-modal";
 import { api, type Reservation, type Resource } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +28,9 @@ export default function BookingsPage() {
   const [bookings, setBookings] = useState<Reservation[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [filterTab, setFilterTab] = useState<"ALL" | "ACTIVE" | "CANCELLED">("ALL");
+
+  // Check-In & Checkout Modal state
+  const [checkInModalBooking, setCheckInModalBooking] = useState<Reservation | null>(null);
 
   // Cancellation Modal state
   const [cancelModalBooking, setCancelModalBooking] = useState<Reservation | null>(null);
@@ -210,8 +217,12 @@ export default function BookingsPage() {
                       </span>
                       <Badge
                         variant={
-                          booking.status === "CONFIRMED"
+                          booking.status === "CONFIRMED" || booking.status === "CHECKED_IN"
                             ? "available"
+                            : booking.status === "NO_SHOW"
+                            ? booking.noShowPardoned
+                              ? "neutral"
+                              : "danger"
                             : booking.status === "CANCELLED" || booking.status === "REJECTED"
                             ? "cancelled"
                             : "warning"
@@ -220,8 +231,16 @@ export default function BookingsPage() {
                       >
                         {booking.status === "PENDING" && booking.currentStepOrder && booking.approvalChain?.length
                           ? `PENDING (Step ${booking.currentStepOrder}/${booking.approvalChain.length}: ${booking.currentApproverRole || "APPROVAL"})`
+                          : booking.status === "NO_SHOW" && booking.noShowPardoned
+                          ? "NO_SHOW (Pardoned)"
                           : booking.status}
                       </Badge>
+                      {booking.status === "NO_SHOW" && booking.noShowPardoned && (
+                        <span className="text-[11px] text-emerald-400 flex items-center gap-1 font-medium">
+                          <ShieldCheck className="h-3.5 w-3.5" />
+                          Strike Pardoned
+                        </span>
+                      )}
                       {booking.status === "PENDING" && booking.activeStepDeadline && (
                         <span className="text-[11px] text-warning flex items-center gap-1 font-mono">
                           <Clock className="h-3 w-3" />
@@ -309,6 +328,30 @@ export default function BookingsPage() {
 
                   {/* Actions */}
                   <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                    {/* Phase 3.3 Check-In Trigger */}
+                    {booking.status === "CONFIRMED" && (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        icon={<QrCode className="h-4 w-4" />}
+                        onClick={() => setCheckInModalBooking(booking)}
+                      >
+                        Check In
+                      </Button>
+                    )}
+
+                    {/* Phase 3.3 Early Checkout Trigger */}
+                    {booking.status === "CHECKED_IN" && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        icon={<LogOut className="h-4 w-4" />}
+                        onClick={() => setCheckInModalBooking(booking)}
+                      >
+                        Checkout
+                      </Button>
+                    )}
+
                     {resObj && (
                       <Link href={`/dashboard/calendar?resourceId=${resObj._id}`}>
                         <Button variant="ghost" size="sm">
@@ -384,6 +427,14 @@ export default function BookingsPage() {
             </div>
           </div>
         </Modal>
+
+        {/* Phase 3.3 Check-In & Checkout Modal */}
+        <CheckInModal
+          open={!!checkInModalBooking}
+          onClose={() => setCheckInModalBooking(null)}
+          booking={checkInModalBooking}
+          onSuccess={fetchBookings}
+        />
       </PageContainer>
     </div>
   );

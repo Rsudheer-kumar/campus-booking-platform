@@ -5,7 +5,6 @@ import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  CalendarCheck,
   Building2,
   Calendar,
   Clock,
@@ -13,8 +12,9 @@ import {
   ShieldAlert,
   ShieldCheck,
   Timer,
-  FileText,
   AlertCircle,
+  QrCode,
+  LogOut,
 } from "lucide-react";
 import type { Reservation, Resource, User as UserType } from "@/lib/api";
 
@@ -23,6 +23,7 @@ interface BookingDetailModalProps {
   onClose: () => void;
   booking: Reservation | null;
   resource?: Resource | null;
+  onOpenCheckIn?: (booking: Reservation) => void;
 }
 
 type BookingTimeState = "UPCOMING" | "IN_PROGRESS" | "COMPLETED";
@@ -74,6 +75,7 @@ export function BookingDetailModal({
   onClose,
   booking,
   resource,
+  onOpenCheckIn,
 }: BookingDetailModalProps) {
   const [countdownInfo, setCountdownInfo] = useState<{
     timeState: BookingTimeState;
@@ -156,7 +158,7 @@ export function BookingDetailModal({
       ? "available"
       : booking.status === "PENDING"
       ? "occupied"
-      : booking.status === "CANCELLED" || booking.status === "REJECTED"
+      : booking.status === "CANCELLED" || booking.status === "REJECTED" || booking.status === "NO_SHOW"
       ? "danger"
       : "neutral";
 
@@ -228,7 +230,7 @@ export function BookingDetailModal({
                 <div>
                   <span className="text-muted block text-[11px]">Description:</span>
                   <p className="text-foreground/90 text-xs italic">
-                    "{booking.description}"
+                    &ldquo;{booking.description}&rdquo;
                   </p>
                 </div>
               )}
@@ -380,8 +382,60 @@ export function BookingDetailModal({
           </div>
         )}
 
+        {/* Phase 3.3 No-Show details & pardon badge */}
+        {booking.status === "NO_SHOW" && (
+          <div className="p-3.5 rounded-[var(--radius-md)] bg-danger/10 border border-danger/30 text-xs space-y-2">
+            <div className="flex items-center gap-2 font-semibold text-danger">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>Auto-Released Due to No-Show</span>
+            </div>
+            <p className="text-foreground/80">
+              This reservation was not checked in within the allowed grace period and was auto-released as NO_SHOW.
+            </p>
+            {booking.noShowPardoned && (
+              <div className="p-2.5 rounded bg-surface border border-border text-foreground space-y-1 mt-1">
+                <span className="font-semibold text-emerald-400 block">Administrative Strike Pardon Granted</span>
+                {booking.noShowPardonReason && (
+                  <p className="text-[11px] text-muted">
+                    Reason: {booking.noShowPardonReason}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Footer */}
-        <div className="flex justify-end pt-2">
+        <div className="flex items-center justify-between pt-2">
+          <div>
+            {onOpenCheckIn && booking.status === "CONFIRMED" && (
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<QrCode className="h-4 w-4" />}
+                onClick={() => {
+                  onClose();
+                  onOpenCheckIn(booking);
+                }}
+              >
+                Check In (QR)
+              </Button>
+            )}
+            {onOpenCheckIn && booking.status === "CHECKED_IN" && (
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<LogOut className="h-4 w-4" />}
+                onClick={() => {
+                  onClose();
+                  onOpenCheckIn(booking);
+                }}
+              >
+                Check Out Early
+              </Button>
+            )}
+          </div>
+
           <Button variant="secondary" onClick={onClose} size="sm">
             Close
           </Button>
