@@ -20,6 +20,9 @@ import {
   TimetableEntry,
   Reservation,
   ReservationStatus,
+  ApprovalPolicy,
+  ApprovalScopeType,
+  ApproverRole,
 } from '../models';
 import { hashPassword } from '../utils/password';
 import { logger } from '../utils/logger';
@@ -47,8 +50,8 @@ async function seedDatabase(): Promise<void> {
       {
         email: 'faculty@campusflow.edu',
         name: 'Dr. Sarah Connor',
-        roles: [UserRole.FACULTY],
-        department: 'Artificial Intelligence',
+        roles: [UserRole.FACULTY, UserRole.DEPARTMENT_HEAD],
+        department: 'Computer Science',
         identifier: 'FAC-2024-019',
         isActive: true,
         passwordHash,
@@ -412,6 +415,35 @@ async function seedDatabase(): Promise<void> {
       );
     }
     logger.info(`Sample reservations seeded for Alex Chen (student@campusflow.edu).`);
+
+    // 7. Seed Demo Approval Policy (Phase 3.2)
+    logger.info('Seeding demo approval policy...');
+    const labResourceId = resourceMap['LAB-301'];
+    await ApprovalPolicy.findOneAndUpdate(
+      { name: 'AI & Robotics Lab Student Approval Policy' },
+      {
+        $set: {
+          name: 'AI & Robotics Lab Student Approval Policy',
+          description: 'Requires Department Head approval for student access to AI & Robotics Laboratory.',
+          scopeType: ApprovalScopeType.RESOURCE,
+          resource: labResourceId,
+          resourceType: null,
+          requesterRole: UserRole.STUDENT,
+          requiresApproval: true,
+          approvalChain: [
+            {
+              stepOrder: 1,
+              approverRole: ApproverRole.DEPARTMENT_HEAD,
+              timeoutHours: 24,
+            },
+          ],
+          isActive: true,
+          isArchived: false,
+        },
+      },
+      { upsert: true, setDefaultsOnInsert: true }
+    );
+    logger.info('Demo approval policy seeded for LAB-301.');
 
     logger.info('Database seeding completed successfully!');
   } catch (err) {

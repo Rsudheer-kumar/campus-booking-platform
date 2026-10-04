@@ -345,6 +345,12 @@ export class ReservationService {
         }
 
         // 3. Absolute Separation of Duties (Four-Eyes Principle)
+        if (reservation.user.toString() === user.id.toString()) {
+          throw new ValidationError(
+            'Separation of duties violation: The booking creator cannot approve their own booking.'
+          );
+        }
+
         const priorApproverIds = reservation.approvalChain
           .filter((s) => s.status === 'APPROVED' && s.actionedBy)
           .map((s) => s.actionedBy!.toString());

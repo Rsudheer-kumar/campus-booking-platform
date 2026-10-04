@@ -143,10 +143,11 @@ export class ApprovalQueueService {
       },
 
       // Stage 4: Enforce Separation of Duties (Four-Eyes Principle) at query level
-      // Exclude reservations where current user has already approved a previous step!
+      // Exclude reservations where current user has already approved a previous step or is the requester!
       {
         $match: {
           'approvalChain.actionedBy': { $ne: new Types.ObjectId(user.id) },
+          user: { $ne: new Types.ObjectId(user.id) },
         },
       },
 

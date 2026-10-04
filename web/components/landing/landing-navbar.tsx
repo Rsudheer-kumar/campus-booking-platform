@@ -70,7 +70,7 @@ export function LandingNavbar() {
 
         {/* Desktop Actions */}
         <div className="hidden md:flex items-center gap-4">
-          <Link href="/dashboard" className="text-sm font-medium text-white/70 hover:text-white transition-colors drop-shadow-sm">
+          <Link href="/signin" className="text-sm font-medium text-white/70 hover:text-white transition-colors drop-shadow-sm">
             Sign In
           </Link>
           <Link href="/dashboard">
@@ -104,7 +104,7 @@ export function LandingNavbar() {
             </Link>
           ))}
           <div className="h-[1px] w-full bg-border" />
-          <Link href="/dashboard" className="text-sm font-medium text-white py-2" onClick={() => setMobileMenuOpen(false)}>
+          <Link href="/signin" className="text-sm font-medium text-white py-2" onClick={() => setMobileMenuOpen(false)}>
             Sign In
           </Link>
           <Link href="/dashboard" onClick={() => setMobileMenuOpen(false)}>
