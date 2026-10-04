@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import * as THREE from "three";
 import { Edges } from "@react-three/drei";
 
@@ -16,7 +17,7 @@ const innerPlazaGeometry = new THREE.PlaneGeometry(4, 4);
 const pathMaterial = new THREE.MeshStandardMaterial({ color: pathColor, roughness: 0.9 });
 const innerPlazaMaterial = new THREE.MeshBasicMaterial({ color: "#1A2844" });
 
-export function CampusPaths() {
+export const CampusPaths = memo(function CampusPaths() {
   return (
     <group position={[0, -0.012, 0]}>
       {/* Main vertical spine */}
@@ -73,4 +74,4 @@ export function CampusPaths() {
       </mesh>
     </group>
   );
-}
+});

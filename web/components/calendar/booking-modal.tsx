@@ -61,14 +61,15 @@ export function BookingModal({
       const eM = String(e.getUTCMinutes()).padStart(2, "0");
       setEndTime(`${eH}:${eM}`);
     } else {
-      // Default to today
+      // Default to today and next whole hour (future time)
       const now = new Date();
       const yyyy = now.getUTCFullYear();
       const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
       const dd = String(now.getUTCDate()).padStart(2, "0");
       setDate(`${yyyy}-${mm}-${dd}`);
-      setStartTime("09:00");
-      setEndTime("10:00");
+      const nextHour = Math.min(20, Math.max(8, now.getUTCHours() + 1));
+      setStartTime(`${String(nextHour).padStart(2, "0")}:00`);
+      setEndTime(`${String(Math.min(21, nextHour + 1)).padStart(2, "0")}:00`);
     }
 
     setTitle("");
@@ -95,6 +96,16 @@ export function BookingModal({
         setConflictError({
           code: "INVALID_INTERVAL",
           message: "End time must be strictly later than start time.",
+          isTimetable: false,
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (startAtDate.getTime() < Date.now()) {
+        setConflictError({
+          code: "PAST_TIME_DISALLOWED",
+          message: "Cannot create reservations in the past. Please select an upcoming date and time.",
           isTimetable: false,
         });
         setIsSubmitting(false);

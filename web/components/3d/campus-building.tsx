@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, memo } from "react";
 import * as THREE from "three";
 import { Edges } from "@react-three/drei";
 
 export interface CampusBuildingProps {
+  buildingId?: string;
   position: [number, number, number];
   size: [number, number, number]; // base width, height, depth
   type: "lab" | "seminar" | "sports" | "general" | "research";
   onClick?: () => void;
+  onSelect?: (id: string) => void;
   selected?: boolean;
 }
 
@@ -125,11 +127,13 @@ const selectedGroundMaterial = new THREE.MeshBasicMaterial({
   depthWrite: false,
 });
 
-export function CampusBuilding({
+export const CampusBuilding = memo(function CampusBuilding({
+  buildingId,
   position,
   size,
   type,
   onClick,
+  onSelect,
   selected = false,
 }: CampusBuildingProps) {
   const [hovered, setHovered] = useState(false);
@@ -147,7 +151,11 @@ export function CampusBuilding({
       position={position}
       onClick={(e) => {
         e.stopPropagation();
-        onClick?.();
+        if (buildingId && onSelect) {
+          onSelect(buildingId);
+        } else {
+          onClick?.();
+        }
       }}
       onPointerOver={(e) => {
         e.stopPropagation();
@@ -389,4 +397,4 @@ export function CampusBuilding({
       )}
     </group>
   );
-}
+});

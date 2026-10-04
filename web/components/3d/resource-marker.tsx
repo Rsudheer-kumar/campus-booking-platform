@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, memo } from "react";
 import { Html, Float } from "@react-three/drei";
 import * as THREE from "three";
 import { cn } from "@/lib/utils";
@@ -13,11 +13,13 @@ export type ResourceStatus =
   | "maintenance";
 
 export interface ResourceMarkerProps {
+  buildingId?: string;
   position: [number, number, number];
   label: string;
   count: number;
   status: ResourceStatus;
   onClick?: () => void;
+  onSelect?: (id: string) => void;
   selected?: boolean;
 }
 
@@ -66,12 +68,14 @@ function getRingMaterial(color: string): THREE.MeshBasicMaterial {
   return mat;
 }
 
-export function ResourceMarker({
+export const ResourceMarker = memo(function ResourceMarker({
+  buildingId,
   position,
   label,
   count,
   status,
   onClick,
+  onSelect,
   selected = false,
 }: ResourceMarkerProps) {
   const [hovered, setHovered] = useState(false);
@@ -95,10 +99,13 @@ export function ResourceMarker({
   const markerMaterial = getMarkerMaterial(color, selected, hovered);
   const ringMaterial = getRingMaterial(color);
 
+  // Avoid unnecessary animation loop work when not moving or interacting
+  const floatSpeed = prefersReducedMotion ? 0 : hovered || selected ? 1.5 : 0;
+
   return (
     <group position={position}>
       <Float
-        speed={prefersReducedMotion ? 0 : 2}
+        speed={floatSpeed}
         rotationIntensity={prefersReducedMotion ? 0 : 0.2}
         floatIntensity={prefersReducedMotion ? 0 : 0.5}
         floatingRange={prefersReducedMotion ? [0, 0] : [-0.1, 0.1]}
@@ -107,7 +114,11 @@ export function ResourceMarker({
         <mesh
           onClick={(e) => {
             e.stopPropagation();
-            onClick?.();
+            if (buildingId && onSelect) {
+              onSelect(buildingId);
+            } else {
+              onClick?.();
+            }
           }}
           onPointerOver={(e) => {
             e.stopPropagation();
@@ -187,4 +198,4 @@ export function ResourceMarker({
       </Float>
     </group>
   );
-}
+});

@@ -81,7 +81,17 @@ export interface Resource {
 
 export interface TimetableEntry {
   _id: string;
-  resource: string | { _id: string; name: string; code: string };
+  resource:
+    | string
+    | Resource
+    | {
+        _id: string;
+        name: string;
+        code: string;
+        location?: ResourceLocation;
+        capacity?: number;
+        status?: string;
+      };
   academicTerm: string;
   courseCode: string;
   courseTitle: string;

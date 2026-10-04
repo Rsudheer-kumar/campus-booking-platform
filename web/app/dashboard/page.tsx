@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { Plus, ArrowRight, LayoutDashboard, CalendarDays, MapPin } from "lucide-react";
@@ -10,9 +10,24 @@ import { PageContainer, PageHeader } from "@/components/layout";
 import { Card, Badge, Button } from "@/components/ui";
 import type { CampusSceneProps } from "@/components/3d/campus-scene";
 
+function DigitalTwinPlaceholder() {
+  return (
+    <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-[#050816]">
+      <div className="relative h-12 w-12">
+        <div className="absolute inset-0 rounded-full border-2 border-primary/30 animate-pulse" />
+        <div className="absolute inset-2 rounded-full border-2 border-t-primary border-r-transparent border-b-transparent border-l-transparent animate-spin" />
+        <MapPin className="absolute inset-0 m-auto h-4 w-4 text-primary/70" />
+      </div>
+      <p className="text-xs text-muted/60 font-mono tracking-wider">
+        Initialising Campus Digital Twin…
+      </p>
+    </div>
+  );
+}
+
 /**
  * Dynamically import the Three.js / WebGL scene so it is code-split into its
- * own chunk and never blocks initial dashboard hydration.  The heavy Three.js,
+ * own chunk and never blocks initial dashboard hydration. The heavy Three.js,
  * @react-three/fiber, and @react-three/drei packages are only fetched once the
  * browser is ready to paint the interactive canvas.
  */
@@ -23,18 +38,7 @@ const CampusScene = dynamic<CampusSceneProps>(
     })),
   {
     ssr: false,
-    loading: () => (
-      <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-[#050816]">
-        <div className="relative h-12 w-12">
-          <div className="absolute inset-0 rounded-full border-2 border-primary/30 animate-pulse" />
-          <div className="absolute inset-2 rounded-full border-2 border-t-primary border-r-transparent border-b-transparent border-l-transparent animate-spin" />
-          <MapPin className="absolute inset-0 m-auto h-4 w-4 text-primary/70" />
-        </div>
-        <p className="text-xs text-muted/60 font-mono tracking-wider">
-          Initialising Campus Digital Twin…
-        </p>
-      </div>
-    ),
+    loading: () => <DigitalTwinPlaceholder />,
   }
 );
 
@@ -42,6 +46,16 @@ export default function DashboardPage() {
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(
     null,
   );
+  const [shouldLoad3D, setShouldLoad3D] = useState(false);
+
+  useEffect(() => {
+    // Sequence A: Allow critical dashboard UI to render and become interactive immediately.
+    // Sequence B: Defer CampusScene dynamic loading until critical UI has painted.
+    const raf = requestAnimationFrame(() => {
+      setShouldLoad3D(true);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   // Dummy logic mapped from 3D configuration
   // Real world would query backend for building details based on selectedBuildingId
@@ -121,10 +135,14 @@ export default function DashboardPage() {
 
             {/* The interactive WebGL Scene */}
             <div className="w-full h-full relative cursor-grab active:cursor-grabbing">
-              <CampusScene
-                selectedBuildingId={selectedBuildingId}
-                onSelectBuilding={setSelectedBuildingId}
-              />
+              {shouldLoad3D ? (
+                <CampusScene
+                  selectedBuildingId={selectedBuildingId}
+                  onSelectBuilding={setSelectedBuildingId}
+                />
+              ) : (
+                <DigitalTwinPlaceholder />
+              )}
             </div>
           </Card>
 

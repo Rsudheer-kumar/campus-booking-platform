@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  transpilePackages: ["three"],
+  experimental: {
+    optimizePackageImports: ["three", "@react-three/drei", "lucide-react"],
+  },
   async rewrites() {
     return [
       {

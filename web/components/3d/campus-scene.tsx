@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, memo } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
@@ -73,6 +73,16 @@ export function CampusScene({
 }: CampusSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsRef = useRef<OrbitControlsImpl>(null);
+  const [detailsReady, setDetailsReady] = useState(false);
+
+  // Progressive initialization: render cheap visible scene (ground, terrain, building massing)
+  // on frame 1, then mount secondary details (floating animations, HTML markers) on frame 2.
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      setDetailsReady(true);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   const handleSelect = useCallback(
     (id: string) => {
@@ -108,7 +118,7 @@ export function CampusScene({
 
       <WebGLErrorBoundary fallback={<SceneFallback />}>
         <Canvas
-          shadows
+          shadows="percentage"
           dpr={[1, 1.5]} // Reduced max DPR from 2 to 1.5 for better mobile/desktop initial performance
           camera={{ position: [20, 16, 26], fov: 40 }} // Adjusted for better campus composition
           style={{
@@ -122,31 +132,34 @@ export function CampusScene({
             <CampusGround />
             <CampusPaths />
 
-            {/* Procedural Buildings */}
+            {/* Procedural Buildings (Memoized) */}
             {BUILDINGS.map((b) => {
               const isSelected = selectedBuildingId === b.id;
               return (
                 <group key={b.id}>
                   <CampusBuilding
+                    buildingId={b.id}
                     position={b.position}
                     size={b.size}
                     type={b.type}
                     selected={isSelected}
-                    onClick={() => handleSelect(b.id)}
+                    onSelect={handleSelect}
                   />
-                  <ResourceMarker
-                    // Place marker directly above building roof
-                    position={[
-                      b.position[0],
-                      b.position[1] + b.size[1] / 2 + 1.2,
-                      b.position[2],
-                    ]}
-                    label={b.label}
-                    count={b.resourcesCount}
-                    status={b.status}
-                    selected={isSelected}
-                    onClick={() => handleSelect(b.id)}
-                  />
+                  {detailsReady && (
+                    <ResourceMarker
+                      buildingId={b.id}
+                      position={[
+                        b.position[0],
+                        b.position[1] + b.size[1] / 2 + 1.2,
+                        b.position[2],
+                      ]}
+                      label={b.label}
+                      count={b.resourcesCount}
+                      status={b.status}
+                      selected={isSelected}
+                      onSelect={handleSelect}
+                    />
+                  )}
                 </group>
               );
             })}

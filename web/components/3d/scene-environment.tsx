@@ -1,6 +1,8 @@
 "use client";
 
-export function SceneEnvironment() {
+import { memo } from "react";
+
+export const SceneEnvironment = memo(function SceneEnvironment() {
   return (
     <>
       {/* Ambient base - raised slightly for readability */}
@@ -43,4 +45,4 @@ export function SceneEnvironment() {
       <fog attach="fog" args={["#050816", 25, 75]} />
     </>
   );
-}
+});

@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import * as THREE from "three";
 import { Grid, Edges } from "@react-three/drei";
 
@@ -10,7 +11,7 @@ const plinthMaterial = new THREE.MeshStandardMaterial({ color: "#0B1120", roughn
 const baseGeometry = new THREE.PlaneGeometry(150, 150);
 const baseMaterial = new THREE.MeshStandardMaterial({ color: "#050816", roughness: 1 });
 
-export function CampusGround() {
+export const CampusGround = memo(function CampusGround() {
   return (
     <group>
       {/* Decorative procedural Grid to match our "digital twin" aesthetic */}
@@ -48,4 +49,4 @@ export function CampusGround() {
       />
     </group>
   );
-}
+});

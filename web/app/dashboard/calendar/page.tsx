@@ -15,11 +15,15 @@ import {
   Users,
   CheckCircle2,
   RefreshCw,
+  AlertCircle,
+  Eye,
 } from "lucide-react";
 
 import { PageContainer, PageHeader } from "@/components/layout";
 import { Card, Badge, Button, Select, Skeleton } from "@/components/ui";
 import { BookingModal } from "@/components/calendar/booking-modal";
+import { TimetableDetailModal } from "@/components/calendar/timetable-detail-modal";
+import { BookingDetailModal } from "@/components/calendar/booking-detail-modal";
 import {
   api,
   type Resource,
@@ -44,17 +48,15 @@ function CalendarView() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
-  // Booking modal state
+  // Modal interaction states
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [modalSlot, setModalSlot] = useState<{ start: string; end: string } | null>(null);
+  const [selectedTimetable, setSelectedTimetable] = useState<TimetableEntry | null>(null);
+  const [selectedBooking, setSelectedBooking] = useState<Reservation | null>(null);
 
   // 1. Fetch Resources — runs ONCE on mount only.
-  // We read the initial URL resourceId here and never re-run when searchParams
-  // changes (e.g. after handleResourceChange calls router.replace), which would
-  // create an infinite fetch loop.
   const initialResourceIdRef = useRef<string | null>(null);
   useEffect(() => {
-    // Capture the URL param at the time the component first mounts
     initialResourceIdRef.current = searchParams.get("resourceId");
 
     async function loadResources() {
@@ -74,7 +76,7 @@ function CalendarView() {
     }
     loadResources();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // intentionally empty — mount-only
+  }, []);
 
   // Sync selected resource with URL
   const handleResourceChange = (resId: string) => {
@@ -113,9 +115,7 @@ function CalendarView() {
 
     setIsLoading(true);
     try {
-      // Full ISO range for the visible week window
       const startAt = weekDays[0].toISOString();
-      // End of the last visible day (Sunday 23:59:59.999 UTC)
       const endAt = new Date(weekDays[6].getTime() + 86400000 - 1).toISOString();
 
       const [ttRes, bkRes] = await Promise.all([
@@ -123,7 +123,6 @@ function CalendarView() {
           resourceId: selectedResourceId,
           startAt,
           endAt,
-          limit: 100,
         }),
         api.bookings.list({
           resourceId: selectedResourceId,
@@ -173,10 +172,27 @@ function CalendarView() {
 
   // Open booking modal for a specific day and hour
   const handleOpenBooking = (dayDate: Date, hour: number) => {
+    const currentTime = Date.now();
     const start = new Date(dayDate);
     start.setUTCHours(hour, 0, 0, 0);
     const end = new Date(dayDate);
     end.setUTCHours(hour + 1, 0, 0, 0);
+
+    // If attempting to open a slot strictly in the past, refuse action
+    if (end.getTime() <= currentTime) {
+      return;
+    }
+
+    // If opening the current hour where start time is already in the past,
+    // clamp start to the next valid future 15-minute mark so startAt is never in the past
+    if (start.getTime() < currentTime) {
+      const nowObj = new Date(currentTime);
+      const nextMin = Math.ceil((nowObj.getUTCMinutes() + 1) / 15) * 15;
+      start.setUTCHours(nowObj.getUTCHours(), nextMin, 0, 0);
+      if (end.getTime() <= start.getTime()) {
+        end.setTime(start.getTime() + 60 * 60 * 1000);
+      }
+    }
 
     setModalSlot({
       start: start.toISOString(),
@@ -200,38 +216,44 @@ function CalendarView() {
   }, [selectedDate]);
 
   /**
-   * Pre-index schedule entries by an ISO slot key "YYYY-MM-DDTHH" (UTC) to
-   * enable O(1) lookups during the calendar grid render instead of an O(N)
-   * linear scan per cell.  Timetable entries win over bookings when they
-   * overlap the same cell (institutional calendar has priority).
+   * Pre-index schedule entries using authoritative mathematical half-open interval overlap:
+   * [curHour, nextHour) overlaps [startAt, endAt) iff curHour < endAt && nextHour > startAt.
+   *
+   * Correctly maps non-hour-aligned intervals (e.g. 09:30–10:30 overlaps both 09:00 and 10:00),
+   * respects adjacent boundaries (08:30–09:30 does not collide with 09:30–10:30),
+   * and correctly indexes multi-hour sessions with O(1) cell lookup performance.
    */
   const scheduleIndex = useMemo(() => {
     const ttMap = new Map<string, TimetableEntry>();
     const bkMap = new Map<string, Reservation>();
 
+    function getOverlappingSlotKeys(startAt: string | Date, endAt: string | Date): string[] {
+      const s = new Date(startAt);
+      const e = new Date(endAt);
+      const keys: string[] = [];
+      const cur = new Date(s);
+      cur.setUTCMinutes(0, 0, 0);
+      while (cur < e) {
+        const nextHour = new Date(cur.getTime() + 3600000);
+        if (cur < e && nextHour > s) {
+          keys.push(cur.toISOString().slice(0, 13)); // "YYYY-MM-DDTHH"
+        }
+        cur.setTime(nextHour.getTime());
+      }
+      return keys;
+    }
+
     for (const tt of timetables) {
-      const s = new Date(tt.startAt);
-      const e = new Date(tt.endAt);
-      // Mark every UTC whole-hour slot that overlaps this entry
-      for (let h = s.getUTCHours(); ; h++) {
-        const slotStart = new Date(s);
-        slotStart.setUTCHours(h, 0, 0, 0);
-        if (slotStart >= e) break;
-        const key = slotStart.toISOString().slice(0, 13); // "YYYY-MM-DDTHH"
+      const keys = getOverlappingSlotKeys(tt.startAt, tt.endAt);
+      for (const key of keys) {
         ttMap.set(key, tt);
       }
     }
 
     for (const bk of bookings) {
-      const s = new Date(bk.startAt);
-      const e = new Date(bk.endAt);
-      for (let h = s.getUTCHours(); ; h++) {
-        const slotStart = new Date(s);
-        slotStart.setUTCHours(h, 0, 0, 0);
-        if (slotStart >= e) break;
-        const key = slotStart.toISOString().slice(0, 13);
+      const keys = getOverlappingSlotKeys(bk.startAt, bk.endAt);
+      for (const key of keys) {
         if (!ttMap.has(key)) {
-          // Only store booking entry if no timetable entry occupies that slot
           bkMap.set(key, bk);
         }
       }
@@ -239,6 +261,10 @@ function CalendarView() {
 
     return { ttMap, bkMap };
   }, [timetables, bookings]);
+
+  // Current timestamp snapshot for interval calculations
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
 
   return (
     <div className="min-h-full py-8 grid-background">
@@ -365,7 +391,7 @@ function CalendarView() {
               </div>
               <span>•</span>
               <div>
-                Location: {activeResource.location?.building}, Floor {activeResource.location?.floor}, Room {activeResource.location?.roomNumber || activeResource.code}
+                Location: {activeResource.location?.building}, Floor {activeResource.location?.floor || "1"}, Room {activeResource.location?.roomNumber || activeResource.code}
               </div>
               <span>•</span>
               <div className="flex items-center gap-1">
@@ -389,8 +415,21 @@ function CalendarView() {
         {/* Schedule Grid Area */}
         {isLoading ? (
           <Card className="p-6 space-y-4">
-            <Skeleton className="h-8 w-1/3" />
-            <div className="grid grid-cols-7 gap-2">
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4 text-primary animate-spin" />
+                  <span className="text-sm font-semibold text-foreground">
+                    Loading Campus Schedule...
+                  </span>
+                </div>
+                <p className="text-xs text-muted">
+                  Retrieving institutional timetable constraints and reservations
+                </p>
+              </div>
+              <Skeleton className="h-6 w-32" />
+            </div>
+            <div className="grid grid-cols-7 gap-2 pt-2">
               {Array.from({ length: 7 }).map((_, i) => (
                 <Skeleton key={i} className="h-72 w-full" />
               ))}
@@ -407,9 +446,9 @@ function CalendarView() {
                     UTC Time
                   </div>
                   {weekDays.map((d, i) => {
-                    const isToday =
-                      new Date().toISOString().slice(0, 10) ===
-                      d.toISOString().slice(0, 10);
+                    const dayStr = d.toISOString().slice(0, 10);
+                    const isToday = dayStr === todayStr;
+                    const isPastDay = dayStr < todayStr;
                     const dayName = new Intl.DateTimeFormat("en-US", {
                       weekday: "short",
                       timeZone: "UTC",
@@ -420,13 +459,26 @@ function CalendarView() {
                       <div
                         key={i}
                         className={cn(
-                          "p-3 text-center border-r border-border/60 last:border-r-0",
-                          isToday && "bg-primary/10 text-primary-bright font-bold"
+                          "p-3 text-center border-r border-border/60 last:border-r-0 transition-colors",
+                          isToday && "bg-primary/10 text-primary-bright font-bold",
+                          isPastDay && "opacity-80 bg-surface-2/30"
                         )}
                       >
-                        <span className="block text-[11px] opacity-80 uppercase tracking-wider">
-                          {dayName}
-                        </span>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <span className="block text-[11px] opacity-80 uppercase tracking-wider">
+                            {dayName}
+                          </span>
+                          {isToday && (
+                            <span className="px-1.5 py-0.2 rounded-full bg-primary/20 text-primary-bright text-[9px] font-bold uppercase tracking-wider">
+                              Today
+                            </span>
+                          )}
+                          {isPastDay && (
+                            <span className="text-[9px] text-muted opacity-60 font-mono">
+                              Past
+                            </span>
+                          )}
+                        </div>
                         <span className="text-sm font-semibold">{dayNum}</span>
                       </div>
                     );
@@ -447,11 +499,18 @@ function CalendarView() {
 
                         {/* 7 Day Columns */}
                         {weekDays.map((dayDate, dayIdx) => {
-                          const cellStartUtc = new Date(dayDate);
-                          cellStartUtc.setUTCHours(hour, 0, 0, 0);
+                          const slotStartUtc = new Date(dayDate);
+                          slotStartUtc.setUTCHours(hour, 0, 0, 0);
+                          const slotEndUtc = new Date(dayDate);
+                          slotEndUtc.setUTCHours(hour + 1, 0, 0, 0);
 
-                          // O(1) pre-indexed lookups instead of O(N) linear scans
-                          const slotKey = cellStartUtc.toISOString().slice(0, 13);
+                          const isPastCell = slotEndUtc.getTime() <= now.getTime();
+                          const isCurrentCell =
+                            slotStartUtc.getTime() <= now.getTime() &&
+                            now.getTime() < slotEndUtc.getTime();
+
+                          // O(1) pre-indexed lookups
+                          const slotKey = slotStartUtc.toISOString().slice(0, 13);
                           const matchingTt = scheduleIndex.ttMap.get(slotKey) ?? null;
                           const matchingBk = scheduleIndex.bkMap.get(slotKey) ?? null;
 
@@ -459,27 +518,55 @@ function CalendarView() {
                             <div
                               key={dayIdx}
                               className={cn(
-                                "border-r border-border/40 last:border-r-0 p-1 relative transition-colors",
-                                !matchingTt && !matchingBk && "hover:bg-primary/5 cursor-pointer group"
+                                "border-r border-border/40 last:border-r-0 p-1 relative transition-colors select-none",
+                                isPastCell && !matchingTt && !matchingBk
+                                  ? "bg-surface-2/10 cursor-not-allowed opacity-60"
+                                  : !matchingTt && !matchingBk
+                                  ? "hover:bg-primary/5 cursor-pointer group"
+                                  : "cursor-pointer"
                               )}
                               onClick={() => {
-                                if (!matchingTt && !matchingBk) {
+                                if (matchingTt) {
+                                  setSelectedTimetable(matchingTt);
+                                } else if (matchingBk) {
+                                  setSelectedBooking(matchingBk);
+                                } else if (!isPastCell) {
                                   handleOpenBooking(dayDate, hour);
                                 }
                               }}
                             >
-                              {/* 1. Academic Timetable Session (Institutional Priority) */}
+                              {/* 1. Academic Timetable Session (Interactive Detail Click) */}
                               {matchingTt && (
                                 <div
-                                  className="h-full w-full rounded-[var(--radius-sm)] p-1.5 bg-gradient-to-br from-primary/25 to-[#1E293B] border border-primary/50 text-foreground flex flex-col justify-between select-none shadow-sm"
-                                  title={`Academic Timetable: ${matchingTt.courseCode} - ${matchingTt.courseTitle} (${matchingTt.instructorName || "Department"})`}
+                                  data-timetable-entry={matchingTt.courseCode}
+                                  className={cn(
+                                    "h-full w-full rounded-[var(--radius-sm)] p-1.5 border text-foreground flex flex-col justify-between shadow-sm transition-all hover:scale-[1.01] cursor-pointer",
+                                    isCurrentCell
+                                      ? "bg-gradient-to-br from-primary/35 to-[#1E293B] border-primary-bright ring-1 ring-primary/40 shadow-md"
+                                      : isPastCell
+                                      ? "bg-gradient-to-br from-primary/15 to-[#0F172A] border-primary/30 opacity-80"
+                                      : "bg-gradient-to-br from-primary/25 to-[#1E293B] border-primary/50"
+                                  )}
+                                  title={`Academic Timetable: ${matchingTt.courseCode} - ${matchingTt.courseTitle} (Click for details)`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedTimetable(matchingTt);
+                                  }}
                                 >
                                   <div>
                                     <div className="flex items-center justify-between gap-1">
                                       <span className="text-[11px] font-bold text-primary-bright truncate">
                                         {matchingTt.courseCode}
                                       </span>
-                                      <Lock className="h-3 w-3 text-primary-bright shrink-0" />
+                                      <div className="flex items-center gap-1">
+                                        {isCurrentCell && (
+                                          <span className="relative flex h-2 w-2">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                                          </span>
+                                        )}
+                                        <Lock className="h-3 w-3 text-primary-bright shrink-0" />
+                                      </div>
                                     </div>
                                     <p className="text-[10px] text-foreground/90 truncate leading-tight font-medium">
                                       {matchingTt.courseTitle}
@@ -495,11 +582,23 @@ function CalendarView() {
                                 </div>
                               )}
 
-                              {/* 2. User Reservation */}
+                              {/* 2. User Reservation (Interactive Detail Click) */}
                               {!matchingTt && matchingBk && (
                                 <div
-                                  className="h-full w-full rounded-[var(--radius-sm)] p-1.5 bg-emerald-500/15 border border-emerald-500/40 text-foreground flex flex-col justify-between select-none"
-                                  title={`Reservation: ${matchingBk.title}`}
+                                  data-booking-entry={matchingBk._id}
+                                  className={cn(
+                                    "h-full w-full rounded-[var(--radius-sm)] p-1.5 border text-foreground flex flex-col justify-between transition-all hover:scale-[1.01] cursor-pointer",
+                                    isCurrentCell
+                                      ? "bg-emerald-500/25 border-emerald-400 ring-1 ring-emerald-400/40 shadow-sm"
+                                      : isPastCell
+                                      ? "bg-emerald-500/10 border-emerald-500/30 opacity-75"
+                                      : "bg-emerald-500/15 border-emerald-500/40"
+                                  )}
+                                  title={`Reservation: ${matchingBk.title} (Click for details)`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedBooking(matchingBk);
+                                  }}
                                 >
                                   <div className="flex items-center justify-between gap-1">
                                     <span className="text-[11px] font-semibold text-emerald-400 truncate">
@@ -510,19 +609,28 @@ function CalendarView() {
                                   <div className="flex items-center justify-between text-[9px] text-muted">
                                     <span className="text-emerald-300 font-medium">{matchingBk.status}</span>
                                     <span className="font-mono">
-                                      {new Date(matchingBk.startAt).getUTCHours()}:00
+                                      {new Date(matchingBk.startAt).getUTCHours()}:
+                                      {String(new Date(matchingBk.startAt).getUTCMinutes()).padStart(2, "0")}
                                     </span>
                                   </div>
                                 </div>
                               )}
 
-                              {/* 3. Available Empty Slot Hover Helper */}
+                              {/* 3. Empty Slot: Past (Unbookable) vs Future (Bookable) */}
                               {!matchingTt && !matchingBk && (
-                                <div className="h-full w-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                  <span className="text-[10px] text-primary flex items-center gap-0.5 font-medium">
-                                    <Plus className="h-3 w-3" /> Book
-                                  </span>
-                                </div>
+                                isPastCell ? (
+                                  <div className="h-full w-full flex items-center justify-center">
+                                    <span className="text-[10px] text-muted/30 font-mono select-none">
+                                      —
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="h-full w-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                    <span className="text-[10px] text-primary flex items-center gap-0.5 font-medium">
+                                      <Plus className="h-3 w-3" /> Book
+                                    </span>
+                                  </div>
+                                )
                               )}
                             </div>
                           );
@@ -547,6 +655,13 @@ function CalendarView() {
                 {hours.map((hour) => {
                   const cellStartUtc = new Date(selectedDate);
                   cellStartUtc.setUTCHours(hour, 0, 0, 0);
+                  const cellEndUtc = new Date(selectedDate);
+                  cellEndUtc.setUTCHours(hour + 1, 0, 0, 0);
+
+                  const isPastCell = cellEndUtc.getTime() <= now.getTime();
+                  const isCurrentCell =
+                    cellStartUtc.getTime() <= now.getTime() &&
+                    now.getTime() < cellEndUtc.getTime();
 
                   // O(1) pre-indexed lookups
                   const slotKey = cellStartUtc.toISOString().slice(0, 13);
@@ -559,11 +674,20 @@ function CalendarView() {
                       className={cn(
                         "p-3 rounded-[var(--radius-md)] border flex items-center justify-between gap-4 transition-colors",
                         matchingTt
-                          ? "bg-primary/10 border-primary/40 text-foreground"
+                          ? "bg-primary/10 border-primary/40 text-foreground cursor-pointer hover:border-primary/80"
                           : matchingBk
-                          ? "bg-emerald-500/10 border-emerald-500/30 text-foreground"
+                          ? "bg-emerald-500/10 border-emerald-500/30 text-foreground cursor-pointer hover:border-emerald-400"
+                          : isPastCell
+                          ? "bg-surface-2/10 border-border/40 opacity-60 cursor-not-allowed"
                           : "bg-surface border-border/60 hover:border-primary/40"
                       )}
+                      onClick={() => {
+                        if (matchingTt) {
+                          setSelectedTimetable(matchingTt);
+                        } else if (matchingBk) {
+                          setSelectedBooking(matchingBk);
+                        }
+                      }}
                     >
                       <div className="flex items-center gap-3">
                         <span className="font-mono text-xs font-semibold text-muted w-14">
@@ -576,12 +700,12 @@ function CalendarView() {
                               <span className="font-bold text-primary-bright text-sm">
                                 {matchingTt.courseCode} — {matchingTt.courseTitle}
                               </span>
-                              <Badge variant="occupied" dot>
-                                Institutional Curriculum
+                              <Badge variant={isCurrentCell ? "occupied" : "neutral"} dot={isCurrentCell}>
+                                {isCurrentCell ? "In Progress" : isPastCell ? "Completed" : "Institutional Session"}
                               </Badge>
                             </div>
                             <p className="text-xs text-muted mt-0.5">
-                              Instructor: {matchingTt.instructorName || "Faculty"} • Non-bookable institutional session
+                              Instructor: {matchingTt.instructorName || "Faculty"} • Click to view class details
                             </p>
                           </div>
                         )}
@@ -589,15 +713,15 @@ function CalendarView() {
                         {!matchingTt && matchingBk && (
                           <div>
                             <div className="flex items-center gap-2">
-                              <span className="font-semibold text-emerald-400 text-sm">
+                              <span className="semibold text-emerald-400 text-sm">
                                 {matchingBk.title}
                               </span>
-                              <Badge variant="available" dot>
-                                Reserved
+                              <Badge variant="available" dot={isCurrentCell}>
+                                {matchingBk.status}
                               </Badge>
                             </div>
                             <p className="text-xs text-muted mt-0.5">
-                              Active Reservation • {matchingBk.status}
+                              Active Reservation • Click to view reservation details
                             </p>
                           </div>
                         )}
@@ -605,22 +729,44 @@ function CalendarView() {
                         {!matchingTt && !matchingBk && (
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-medium text-muted">
-                              Available for booking
+                              {isPastCell ? "Past time slot" : "Available for booking"}
                             </span>
-                            <Badge variant="available">Open</Badge>
+                            <Badge variant={isPastCell ? "neutral" : "available"}>
+                              {isPastCell ? "Expired" : "Open"}
+                            </Badge>
                           </div>
                         )}
                       </div>
 
                       <div>
                         {matchingTt ? (
-                          <span className="text-xs text-muted flex items-center gap-1 font-medium">
-                            <Lock className="h-3.5 w-3.5 text-primary" /> Locked
-                          </span>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedTimetable(matchingTt);
+                            }}
+                            className="text-xs"
+                          >
+                            <Eye className="h-3.5 w-3.5 mr-1" /> View Class
+                          </Button>
                         ) : matchingBk ? (
-                          <span className="text-xs text-emerald-400 flex items-center gap-1 font-medium">
-                            <CheckCircle2 className="h-3.5 w-3.5" /> Booked
-                          </span>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedBooking(matchingBk);
+                            }}
+                            className="text-xs text-emerald-400"
+                          >
+                            <Eye className="h-3.5 w-3.5 mr-1" /> View Booking
+                          </Button>
+                        ) : isPastCell ? (
+                          <Button size="sm" variant="secondary" disabled className="text-xs opacity-50">
+                            Unbookable
+                          </Button>
                         ) : (
                           <Button
                             size="sm"
@@ -639,7 +785,23 @@ function CalendarView() {
           </div>
         )}
 
-        {/* Booking Modal */}
+        {/* Timetable Class Detail Modal */}
+        <TimetableDetailModal
+          open={!!selectedTimetable}
+          onClose={() => setSelectedTimetable(null)}
+          entry={selectedTimetable}
+          resource={activeResource}
+        />
+
+        {/* Booking Detail Modal */}
+        <BookingDetailModal
+          open={!!selectedBooking}
+          onClose={() => setSelectedBooking(null)}
+          booking={selectedBooking}
+          resource={activeResource}
+        />
+
+        {/* Booking Creation Modal */}
         <BookingModal
           open={isModalOpen}
           onClose={() => setIsModalOpen(false)}
