@@ -43,6 +43,7 @@ export const mainNavItems: NavItemConfig[] = [
     label: "Maintenance",
     href: "/dashboard/maintenance",
     icon: <Wrench className="h-4 w-4" />,
+    enabled: false, // Phase 3.4 feature
   },
   {
     label: "Inventory",

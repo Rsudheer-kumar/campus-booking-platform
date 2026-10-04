@@ -17,6 +17,7 @@ export function SidebarContent({ onItemClick, className }: SidebarContentProps) 
 
   const filterItems = (items: typeof mainNavItems) => {
     return items.filter((item) => {
+      if (item.enabled === false) return false;
       if (!item.roles || item.roles.length === 0) return true;
       if (!user) return false;
       return item.roles.some((role) => user.roles.includes(role as any));

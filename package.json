@@ -4,7 +4,8 @@
   "private": true,
   "description": "CampusFlow - Academic Timetable & Resource Management Platform",
   "scripts": {
-    "dev": "concurrently -n \"API,WEB\" -c \"blue.bold,magenta.bold\" \"npm run dev:api\" \"npm run dev:web\"",
+    "predev": "node scripts/check-ports.js",
+    "dev": "concurrently -k -n \"API,WEB\" -c \"blue.bold,magenta.bold\" \"npm run dev:api\" \"npm run dev:web\"",
     "dev:api": "npm run --prefix api dev",
     "dev:web": "npm run --prefix web dev",
     "build:api": "npm run --prefix api build",

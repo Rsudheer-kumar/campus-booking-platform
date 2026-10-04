@@ -7,4 +7,5 @@ export interface NavItemConfig {
   badge?: number | string;
   roles?: string[]; // Reserved for future RBAC
   children?: NavItemConfig[];
+  enabled?: boolean;
 }

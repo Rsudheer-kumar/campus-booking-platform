@@ -133,7 +133,7 @@ export function LandingScene() {
         >
           {isMounted && (
             <Canvas
-              shadows
+              shadows="percentage"
               dpr={[1, 1.5]}
               camera={{ position: [20, 16, 26], fov: 40 }}
               style={{ width: "100%", height: "100%", background: "transparent" }}

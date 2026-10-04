@@ -21,6 +21,15 @@ async function startServer(): Promise<void> {
     // 1. Create HTTP Server
     server = http.createServer(app);
 
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        logger.error(
+          `Port ${env.PORT} is already in use by another process. Check with "Get-NetTCPConnection -LocalPort ${env.PORT}" or terminate the existing process.`
+        );
+        process.exit(1);
+      }
+    });
+
     server.listen(env.PORT, () => {
       logger.info(`CampusFlow API HTTP server listening on port ${env.PORT}`);
       logger.info(`Health check available at http://localhost:${env.PORT}/api/health`);
@@ -38,10 +47,10 @@ async function startServer(): Promise<void> {
     // 3. Connect to Redis (non-blocking for development if service offline)
     try {
       await connectRedis();
-    } catch (redisError) {
-      logger.warn('Initial Redis connection failed. Server running with degraded Redis state.', {
-        error: redisError instanceof Error ? redisError.message : redisError,
-      });
+    } catch {
+      logger.warn(
+        'Redis unavailable — application running in documented degraded mode (distributed caching & locks unavailable).'
+      );
     }
   } catch (error) {
     logger.error('Fatal error during API startup', error instanceof Error ? error.message : error);

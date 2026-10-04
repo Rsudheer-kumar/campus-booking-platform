@@ -61,26 +61,28 @@ export async function connectRedis(urlOverride?: string): Promise<RedisClientTyp
       redisClient = createClient({
         url: targetUrl,
         socket: {
-          connectTimeout: 5000,
+          connectTimeout: 2000,
           reconnectStrategy: (retries) => {
-            // Stop reconnecting after 3 attempts in development/test to prevent infinite loops
-            if (env.isTest || retries >= 3) {
-              lastRedisError = 'Redis max reconnect attempts reached';
-              return new Error('Redis max reconnect attempts reached');
+            // Bounded retry to avoid infinite reconnect loops and log spam
+            if (env.isTest || retries >= 1) {
+              lastRedisError = 'Redis service unreachable';
+              return new Error('Redis service unreachable');
             }
-            // Exponential backoff capped at 3000ms
-            return Math.min(retries * 500, 3000);
+            return Math.min(retries * 500, 1000);
           },
         },
       });
 
       redisClient.on('error', (err: Error) => {
         lastRedisError = err.message;
-        logger.error('Redis client runtime error', err.message);
+        // Only log unexpected runtime error if client was active
+        if (redisClient?.isReady) {
+          logger.error('Redis client runtime error', err.message);
+        }
       });
 
       redisClient.on('connect', () => {
-        logger.info('Redis socket connecting...');
+        logger.debug('Redis socket connecting...');
       });
 
       redisClient.on('ready', () => {
@@ -89,21 +91,20 @@ export async function connectRedis(urlOverride?: string): Promise<RedisClientTyp
       });
 
       redisClient.on('reconnecting', () => {
-        logger.warn('Redis client reconnecting...');
+        logger.debug('Redis client reconnecting...');
       });
 
       redisClient.on('end', () => {
-        logger.warn('Redis client connection closed');
+        logger.debug('Redis client connection closed');
       });
     }
 
-    logger.info('Connecting to Redis...', { url: redactRedisUrl(targetUrl) });
+    logger.debug('Connecting to Redis...', { url: redactRedisUrl(targetUrl) });
     await redisClient.connect();
     lastRedisError = null;
     return redisClient;
   } catch (error) {
     lastRedisError = error instanceof Error ? error.message : String(error);
-    logger.error('Failed to connect to Redis', lastRedisError);
     throw error;
   } finally {
     isConnecting = false;
@@ -111,27 +112,22 @@ export async function connectRedis(urlOverride?: string): Promise<RedisClientTyp
 }
 
 export async function disconnectRedis(): Promise<void> {
-  if (redisClient && redisClient.isOpen) {
-    try {
+  try {
+    if (redisClient && redisClient.isOpen) {
       await redisClient.quit();
-      logger.info('Redis client disconnected cleanly');
-    } catch (error) {
-      logger.error('Error disconnecting Redis client', error instanceof Error ? error.message : error);
+      logger.debug('Redis client disconnected cleanly');
+    } else if (redisClient) {
+      await redisClient.destroy();
+    }
+  } catch {
+    if (redisClient) {
       try {
-        redisClient.destroy();
+        await redisClient.destroy();
       } catch {
-        // ignore fallback destruction errors
+        // ignore
       }
-    } finally {
-      redisClient = null;
-      lastRedisError = null;
     }
-  } else if (redisClient) {
-    try {
-      redisClient.destroy();
-    } catch {
-      // ignore
-    }
+  } finally {
     redisClient = null;
     lastRedisError = null;
   }
