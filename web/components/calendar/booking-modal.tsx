@@ -35,6 +35,7 @@ export function BookingModal({
     code: string;
     message: string;
     isTimetable: boolean;
+    isNoShowSuspension?: boolean;
   } | null>(null);
 
   // Initialize form when opened or slot selected
@@ -130,12 +131,35 @@ export function BookingModal({
           err.message.includes("TIMETABLE_CONFLICT") ||
           err.message.toLowerCase().includes("academic timetable");
 
+        const isNoShowSuspension =
+          err.code === "NO_SHOW_RESTRICTION_ACTIVE" ||
+          err.message.includes("unexcused no-shows");
+
+        let formattedMessage = isTimetableConflict
+          ? "Academic Timetable Conflict: This facility is reserved for an authoritative institutional curriculum session during this period. Academic courses take precedence over ad-hoc user reservations."
+          : err.message;
+
+        if (isNoShowSuspension) {
+          // Format raw ISO timestamps into human-readable date/time string
+          formattedMessage = formattedMessage.replace(
+            /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g,
+            (iso) => {
+              const d = new Date(iso);
+              return isNaN(d.getTime())
+                ? iso
+                : new Intl.DateTimeFormat("en-US", {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  }).format(d);
+            }
+          );
+        }
+
         setConflictError({
           code: err.code,
-          message: isTimetableConflict
-            ? "Academic Timetable Conflict: This facility is reserved for an authoritative institutional curriculum session during this period. Academic courses take precedence over ad-hoc user reservations."
-            : err.message,
+          message: formattedMessage,
           isTimetable: isTimetableConflict,
+          isNoShowSuspension,
         });
       } else {
         setConflictError({
@@ -169,6 +193,8 @@ export function BookingModal({
               className={`p-3.5 rounded-[var(--radius-md)] border text-sm flex items-start gap-3 animate-fade-in ${
                 conflictError.isTimetable
                   ? "bg-danger/10 border-danger/40 text-danger"
+                  : conflictError.isNoShowSuspension
+                  ? "bg-danger/10 border-danger/40 text-danger"
                   : "bg-warning/10 border-warning/40 text-warning"
               }`}
             >
@@ -177,6 +203,8 @@ export function BookingModal({
                 <p className="font-semibold leading-tight">
                   {conflictError.isTimetable
                     ? "Institutional Timetable Conflict (HTTP 409)"
+                    : conflictError.isNoShowSuspension
+                    ? "Booking Privileges Suspended (No-Show Policy)"
                     : "Reservation Conflict"}
                 </p>
                 <p className="text-xs leading-relaxed opacity-90">{conflictError.message}</p>

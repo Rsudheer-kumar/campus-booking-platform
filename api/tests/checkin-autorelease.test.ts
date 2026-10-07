@@ -1350,5 +1350,236 @@ describe('CampusFlow Phase 3.3: Check-In & Auto-Release Integration Tests', () =
       const body = await res.json();
       assert.strictEqual(body.error?.code, 'PARDON_NOT_ALLOWED');
     });
+
+    it('allows booking creation when user has 0 no-shows', async () => {
+      const now = new Date();
+      const cleanUser = await User.create({
+        name: `${TEST_PREFIX}Zero Strikes User`,
+        email: `${TEST_PREFIX}zero@univ.edu`,
+        roles: [UserRole.STUDENT],
+        department: 'Computer Science',
+        isActive: true,
+      });
+
+      const futureStart = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+      const futureEnd = new Date(now.getTime() + (5 * 24 + 1) * 60 * 60 * 1000);
+
+      const created = await ReservationService.createReservation({
+        resourceId: testResource2._id.toString(),
+        userId: cleanUser._id.toString(),
+        startAt: futureStart.toISOString(),
+        endAt: futureEnd.toISOString(),
+        title: `${TEST_PREFIX}Zero Strikes Booking`,
+        timezone: 'UTC',
+      });
+
+      assert.ok(created._id);
+      assert.strictEqual(created.status, ReservationStatus.CONFIRMED);
+    });
+
+    it('allows booking creation when user has 1 no-show strike', async () => {
+      const now = new Date();
+      const oneStrikeUser = await User.create({
+        name: `${TEST_PREFIX}One Strike User`,
+        email: `${TEST_PREFIX}one@univ.edu`,
+        roles: [UserRole.STUDENT],
+        department: 'Computer Science',
+        isActive: true,
+      });
+
+      await Reservation.create({
+        title: `${TEST_PREFIX}Single Strike`,
+        resource: testResource1._id,
+        user: oneStrikeUser._id,
+        startAt: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
+        endAt: new Date(now.getTime() - (2 * 24 - 1) * 60 * 60 * 1000),
+        timezone: 'UTC',
+        status: ReservationStatus.NO_SHOW,
+      });
+
+      const futureStart = new Date(now.getTime() + 6 * 24 * 60 * 60 * 1000);
+      const futureEnd = new Date(now.getTime() + (6 * 24 + 1) * 60 * 60 * 1000);
+
+      const created = await ReservationService.createReservation({
+        resourceId: testResource2._id.toString(),
+        userId: oneStrikeUser._id.toString(),
+        startAt: futureStart.toISOString(),
+        endAt: futureEnd.toISOString(),
+        title: `${TEST_PREFIX}One Strike Booking`,
+        timezone: 'UTC',
+      });
+
+      assert.ok(created._id);
+      assert.strictEqual(created.status, ReservationStatus.CONFIRMED);
+    });
+
+    it('allows booking creation when user has 2 no-show strikes (under 3-strike threshold)', async () => {
+      const now = new Date();
+      const twoStrikeUser = await User.create({
+        name: `${TEST_PREFIX}Two Strikes User`,
+        email: `${TEST_PREFIX}two@univ.edu`,
+        roles: [UserRole.STUDENT],
+        department: 'Computer Science',
+        isActive: true,
+      });
+
+      for (let i = 1; i <= 2; i++) {
+        await Reservation.create({
+          title: `${TEST_PREFIX}Strike ${i}`,
+          resource: testResource1._id,
+          user: twoStrikeUser._id,
+          startAt: new Date(now.getTime() - i * 24 * 60 * 60 * 1000),
+          endAt: new Date(now.getTime() - (i * 24 - 1) * 60 * 60 * 1000),
+          timezone: 'UTC',
+          status: ReservationStatus.NO_SHOW,
+        });
+      }
+
+      const futureStart = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const futureEnd = new Date(now.getTime() + (7 * 24 + 1) * 60 * 60 * 1000);
+
+      const created = await ReservationService.createReservation({
+        resourceId: testResource2._id.toString(),
+        userId: twoStrikeUser._id.toString(),
+        startAt: futureStart.toISOString(),
+        endAt: futureEnd.toISOString(),
+        title: `${TEST_PREFIX}Two Strikes Booking`,
+        timezone: 'UTC',
+      });
+
+      assert.ok(created._id);
+      assert.strictEqual(created.status, ReservationStatus.CONFIRMED);
+    });
+
+    it('does not count another user NO_SHOW reservations towards the strike threshold', async () => {
+      const now = new Date();
+      const userA = await User.create({
+        name: `${TEST_PREFIX}User A`,
+        email: `${TEST_PREFIX}usera@univ.edu`,
+        roles: [UserRole.STUDENT],
+        department: 'Computer Science',
+        isActive: true,
+      });
+
+      const userB = await User.create({
+        name: `${TEST_PREFIX}User B`,
+        email: `${TEST_PREFIX}userb@univ.edu`,
+        roles: [UserRole.STUDENT],
+        department: 'Computer Science',
+        isActive: true,
+      });
+
+      // User A accumulates 3 no-shows
+      for (let i = 1; i <= 3; i++) {
+        await Reservation.create({
+          title: `${TEST_PREFIX}User A Strike ${i}`,
+          resource: testResource1._id,
+          user: userA._id,
+          startAt: new Date(now.getTime() - i * 24 * 60 * 60 * 1000),
+          endAt: new Date(now.getTime() - (i * 24 - 1) * 60 * 60 * 1000),
+          timezone: 'UTC',
+          status: ReservationStatus.NO_SHOW,
+        });
+      }
+
+      // User B only has 0 strikes and should book freely
+      const futureStart = new Date(now.getTime() + 8 * 24 * 60 * 60 * 1000);
+      const futureEnd = new Date(now.getTime() + (8 * 24 + 1) * 60 * 60 * 1000);
+
+      const created = await ReservationService.createReservation({
+        resourceId: testResource2._id.toString(),
+        userId: userB._id.toString(),
+        startAt: futureStart.toISOString(),
+        endAt: futureEnd.toISOString(),
+        title: `${TEST_PREFIX}User B Clean Booking`,
+        timezone: 'UTC',
+      });
+
+      assert.ok(created._id);
+      assert.strictEqual(created.status, ReservationStatus.CONFIRMED);
+    });
+
+    it('does not count CHECKED_IN or COMPLETED reservations as strikes towards the threshold', async () => {
+      const now = new Date();
+      const activeUser = await User.create({
+        name: `${TEST_PREFIX}Attended User`,
+        email: `${TEST_PREFIX}attended@univ.edu`,
+        roles: [UserRole.STUDENT],
+        department: 'Computer Science',
+        isActive: true,
+      });
+
+      // User attended 3 bookings successfully
+      for (let i = 1; i <= 3; i++) {
+        await Reservation.create({
+          title: `${TEST_PREFIX}Attended ${i}`,
+          resource: testResource1._id,
+          user: activeUser._id,
+          startAt: new Date(now.getTime() - i * 24 * 60 * 60 * 1000),
+          endAt: new Date(now.getTime() - (i * 24 - 1) * 60 * 60 * 1000),
+          timezone: 'UTC',
+          status: ReservationStatus.CHECKED_IN,
+        });
+      }
+
+      const futureStart = new Date(now.getTime() + 9 * 24 * 60 * 60 * 1000);
+      const futureEnd = new Date(now.getTime() + (9 * 24 + 1) * 60 * 60 * 1000);
+
+      const created = await ReservationService.createReservation({
+        resourceId: testResource2._id.toString(),
+        userId: activeUser._id.toString(),
+        startAt: futureStart.toISOString(),
+        endAt: futureEnd.toISOString(),
+        title: `${TEST_PREFIX}Attended User Booking`,
+        timezone: 'UTC',
+      });
+
+      assert.ok(created._id);
+      assert.strictEqual(created.status, ReservationStatus.CONFIRMED);
+    });
+
+    it('allows booking creation when 14-day suspension has expired despite 3 strikes in 30-day window', async () => {
+      const now = new Date();
+      const expiredSuspensionUser = await User.create({
+        name: `${TEST_PREFIX}Expired Suspension User`,
+        email: `${TEST_PREFIX}expiredsusp@univ.edu`,
+        roles: [UserRole.STUDENT],
+        department: 'Computer Science',
+        isActive: true,
+      });
+
+      // Create 3 strikes in the 30-day window, but the most recent one was 16 days ago (> 14 days ago)
+      for (let i = 1; i <= 3; i++) {
+        const daysAgo = 15 + i; // 16, 17, 18 days ago
+        const pastStart = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+        const pastEnd = new Date(now.getTime() - (daysAgo * 24 - 1) * 60 * 60 * 1000);
+        await Reservation.create({
+          title: `${TEST_PREFIX}Expired Strike ${i}`,
+          resource: testResource1._id,
+          user: expiredSuspensionUser._id,
+          startAt: pastStart,
+          endAt: pastEnd,
+          timezone: 'UTC',
+          status: ReservationStatus.NO_SHOW,
+          autoReleasedAt: pastStart,
+        });
+      }
+
+      // User has 3 strikes within 30 days, but latest was 16 days ago (suspension expired 2 days ago)
+      const futureStart = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000);
+      const futureEnd = new Date(now.getTime() + (10 * 24 + 1) * 60 * 60 * 1000);
+
+      const created = await ReservationService.createReservation({
+        resourceId: testResource2._id.toString(),
+        userId: expiredSuspensionUser._id.toString(),
+        startAt: futureStart.toISOString(),
+        endAt: futureEnd.toISOString(),
+        title: `${TEST_PREFIX}Booking Allowed After Suspension Expired`,
+        timezone: 'UTC',
+      });
+
+      assert.ok(created._id);
+      assert.strictEqual(created.status, ReservationStatus.CONFIRMED);
+    });
   });
 });

@@ -73,6 +73,9 @@ Default configuration variables:
 | `NODE_ENV` | `development` | Environment mode (`development`, `production`, `test`) |
 | `PORT` | `5000` | Port for the Express HTTP server |
 | `MONGODB_URI` | `mongodb://localhost:27017/campusflow` | MongoDB connection string |
+| `MONGODB_AUTO_START` | `true` on local Windows development | Automatically start the configured local MongoDB instance when stopped |
+| `MONGOD_PATH` | `C:\Program Files\MongoDB\Server\8.2\bin\mongod.exe` | Local Windows MongoDB executable path |
+| `MONGODB_CONFIG_PATH` | `C:\Users\subba\mongodb-rs0\mongod-rs0.conf` | Local Windows MongoDB configuration path |
 | `REDIS_URL` | `redis://localhost:6379` | Redis connection URL |
 | `CORS_ORIGIN` | `http://localhost:3000` | Allowed frontend origin for CORS |
 

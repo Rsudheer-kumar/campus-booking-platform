@@ -377,6 +377,8 @@ async function seedDatabase(): Promise<void> {
 
     // 6. Seed Sample User Bookings
     logger.info('Seeding sample user bookings...');
+    // Clean existing reservations to ensure a clean development baseline without stale test/QA contamination
+    await Reservation.deleteMany({});
     const studentId = userMap['student@campusflow.edu'];
 
     // Booking 1: On LH-102 (Hopper Lecture Hall) Thursday 14:00 - 15:00 UTC
